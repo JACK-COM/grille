@@ -9,7 +9,7 @@
 
 *Guard what you read.* One piece of [the Panoply](https://github.com/JACK-COM/homebrew-panoply).
 
-Cardano's grille was a sheet with windows cut in it, laid over a letter so only the words that mattered showed through. Grille does that for an AI agent reading a long document: a manufacturer's PDF, a saved web page, a text dump. It returns the eight pages that answer the agent's question instead of all eighty, and on the way it withholds any passage written to steer the agent rather than inform the reader, along with shell commands and hidden characters.
+Cardano's grille was a sheet with windows cut in it, laid over a letter so only the words that mattered showed through. Grille does that for an AI agent reading a long document: a manufacturer's PDF, a saved web page, a text dump. It returns the eight pages that answer the agent's question instead of all eighty, and on the way it withholds any passage written to steer the agent rather than inform the reader, along with shell commands, hidden characters, and any text a web page hides from a human reader (a hidden element, a zero font size, text the colour of its background, a comment written as prose).
 
 A withheld passage is replaced by one line naming the reason and an id, and it stays retrievable: `grille show ID` prints it on purpose. A maintenance page that says "remove the cowl" is data, so nothing is ever dropped.
 
