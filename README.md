@@ -68,7 +68,7 @@ Settings live in `~/.grille/grille.json` (or `$GRILLE_HOME`). `grille schema` wr
 
 ## Requirements
 
-Python 3.9 or later, standard library only, and poppler (`pdftotext`, `pdftoppm`) for PDFs. `fetch` runs no JavaScript, so a page that renders in the browser stays browser work. Tested on macOS.
+Python 3.9 or later, standard library only, and poppler (`pdftotext`, `pdftoppm`) for PDFs. `fetch` runs no JavaScript, so a page that renders in the browser stays browser work. Tested on macOS and Linux (Debian, Python 3.12); on Windows, run it under WSL.
 
 ## Releasing
 
