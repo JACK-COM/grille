@@ -234,11 +234,15 @@ def relay_settings(m=None):
 STORE_DAYS = 7           # a session's store outlives it by this much, then the next call sweeps it
 
 
+def store_root():
+    return Path(os.environ.get("TMPDIR") or tempfile.gettempdir()) / "grille"
+
+
 def store_dir():
     """Per-session store for withheld spans. Outside Claude Code set GRILLE_SESSION, or the
     `default` store is shared by every ad hoc run; every store is swept after STORE_DAYS."""
     sid = os.environ.get("GRILLE_SESSION") or os.environ.get("CLAUDE_CODE_SESSION_ID") or "default"
-    root = Path(os.environ.get("TMPDIR") or tempfile.gettempdir()) / "grille"
+    root = store_root()
     d = root / sid
     d.mkdir(parents=True, exist_ok=True)
     d.chmod(0o700)   # withheld spans are the most sensitive bytes the tool touches
@@ -1193,6 +1197,46 @@ def cmd_check(a):
     return 0 if ok and r is not None and not manifest_findings() else 1
 
 
+def cmd_uninstall(a):
+    """Remove what Grille made, and the shared venv when no other piece still uses it; the
+    settings and the command itself are listed, never removed, like every Panoply piece."""
+    store = store_root()
+    venv, others = embed.shared_venv("grille")
+    print("uninstall will remove:")
+    if store.is_dir():
+        print(f"  directory {store}  (withheld spans, every session)")
+    if venv:
+        print(f"  directory {venv}  (the fastembed venv; no other Panoply piece is on PATH)")
+    if not store.is_dir() and not venv:
+        print("  nothing it made")
+    if a.dry_run:
+        return 0
+    if (store.is_dir() or venv) and not a.yes:
+        if sys.stdin.isatty():
+            if input("proceed? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("nothing removed")
+                return 1
+        else:
+            print("nothing removed; rerun with --yes")
+            return 1
+    for d in (store, venv):
+        if d and d.is_dir():
+            shutil.rmtree(d)
+            print(f"removed {d}")
+    if venv:
+        with contextlib.suppress(OSError):
+            venv.parent.rmdir()             # ~/.panoply, once nothing else is in it
+    print("\nleft for you, if you want it gone completely:")
+    if others:
+        print(f"  the fastembed venv {embed.VENV}, which {' and '.join(others)} still use{'s' if len(others) == 1 else ''}")
+    elif embed.VENV.is_dir() and not venv:
+        print(f"  the fastembed venv you named: {embed.VENV}")
+    if _home().is_dir():
+        print(f"  the settings: rm -r {_home()}   (grille.json and its schema)")
+    print("  the command:  brew uninstall jack-com/panoply/grille   (or `uv tool uninstall grille`)")
+    return 0
+
+
 # ---------------------------------------------------------------- configure
 
 LOCAL_SERVERS = (("ollama", "http://127.0.0.1:11434/v1"), ("LM Studio", "http://127.0.0.1:1234/v1"),
@@ -1569,8 +1613,48 @@ def _selftest_body(d, f, doc):
     assert not _PLACEHOLDER.sub("", hold("x", ["r"], f, 9, store)[0]).strip(), "placeholder survives the strip"
     net = _selftest_fetch(d, doc)
     settings = _selftest_scorer(d)
+    _selftest_uninstall(d)
     print(f"selftest ok: ranked by {method}; {len(withheld)} spans withheld, "
           f"{len(benign)} manual lines passed, {len(attacks)} injections caught, dense block kept; {net}; {settings}")
+
+
+def _selftest_uninstall(d):
+    """Uninstall in a throwaway home and temp dir: the venv stays while another piece is on
+    PATH and goes with the last one; the settings are never removed."""
+    h, bin_ = d / "uh", d / "ubin"
+    venv, store = h / ".panoply/venv", d / "utmp/grille"
+    for x in (venv, store / "s1", bin_, h / ".grille"):
+        x.mkdir(parents=True, exist_ok=True)
+    (bin_ / "locket").write_text("#!/bin/sh\n")
+    (bin_ / "locket").chmod(0o755)
+    keys = ("HOME", "PATH", "TMPDIR", "GRILLE_HOME", "PANOPLY_VENV", "LOCKET_VENV")
+    saved = {k: os.environ.get(k) for k in keys}
+    os.environ.update(HOME=str(h), PATH=str(bin_), TMPDIR=str(d / "utmp"), GRILLE_HOME=str(h / ".grille"))
+    os.environ.pop("PANOPLY_VENV", None)
+    os.environ.pop("LOCKET_VENV", None)
+    ns = argparse.Namespace(yes=True, dry_run=False)
+    try:
+        with embed.settings(VENV=venv):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                assert cmd_uninstall(argparse.Namespace(yes=False, dry_run=True)) == 0
+            assert store.is_dir() and venv.is_dir(), "--dry-run removed something"
+            with contextlib.redirect_stdout(out):
+                cmd_uninstall(ns)
+            assert not store.exists(), "the withheld-span store survived uninstall"
+            assert venv.is_dir(), "the venv went while locket was still on PATH"
+            assert "locket still use" in out.getvalue(), "the kept venv was not explained"
+            (bin_ / "locket").unlink()
+            with contextlib.redirect_stdout(out):
+                cmd_uninstall(ns)
+            assert not venv.parent.exists(), "the last piece left the shared venv or ~/.panoply behind"
+            assert (h / ".grille").is_dir(), "uninstall removed the settings"
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def _tiny_pdf(text):
@@ -1852,6 +1936,14 @@ Every window of every page is one scorer call, and the count is printed before t
         .set_defaults(fn=lambda a: print(f"schema: {write_schema()}") or 0)
     sub.add_parser("selftest", help="offline: sift, screen, fetch, the scorer and relay contracts against stand-ins") \
         .set_defaults(fn=lambda a: selftest())
+    u = sub.add_parser("uninstall", help="remove what grille made; print what is left",
+                       formatter_class=argparse.RawDescriptionHelpFormatter, epilog="""examples:
+  grille uninstall --dry-run                   what removal would take, without taking it
+  grille uninstall --yes                       remove it; the shared venv goes only with the last piece using it
+""")
+    u.add_argument("--yes", action="store_true", help="skip the confirmation")
+    u.add_argument("--dry-run", action="store_true", help="list what would go, remove nothing")
+    u.set_defaults(fn=cmd_uninstall)
     h = sub.add_parser("help", help="print a guide")
     h.add_argument("topic", choices=["install"])
     h.set_defaults(fn=lambda a: print((HERE / "INSTALL-grille.md").read_text(), end="") or 0)
@@ -1863,7 +1955,7 @@ Every window of every page is one scorer call, and the count is printed before t
     venv = e.get("venv") if isinstance(e, dict) else None
     if isinstance(venv, str) and venv:
         embed.VENV = Path(venv).expanduser()
-    if a.cmd not in ("configure", "help", "selftest", "schema", "check"):
+    if a.cmd not in ("configure", "help", "selftest", "schema", "check", "uninstall"):
         # an unfinished setup says so on every run until it is finished or declined
         if relay_settings() is None:
             print(f"grille: {RELAY_SETUP}", file=sys.stderr)

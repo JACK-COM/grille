@@ -72,4 +72,4 @@ Tell the user, in five lines or fewer: the version (`grille --version`), how `si
 
 ## Removal
 
-`brew uninstall jack-com/panoply/grille`, then `rm -r ~/.grille` for the settings. Withheld spans live under the system's temporary directory and are swept after seven days.
+Run `grille uninstall` first: it removes the withheld spans, and the shared fastembed venv too when no other Panoply piece is on PATH, then prints what is left. Then `brew uninstall jack-com/panoply/grille`, and `rm -r ~/.grille` if the settings should go too.

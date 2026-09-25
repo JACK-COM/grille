@@ -34,6 +34,7 @@ grille screen page.html                         the whole document, screened, no
 grille show 3f9a1c                              a withheld span, deliberately
 grille verify https://a.example https://b.example --json
 grille check                                    every part, and what is missing
+grille uninstall --dry-run                      what removal takes; the shared venv goes with the last piece
 ```
 
 `--ask` repeats, one per topic, and the questions take turns filling `--pages`. `--score` adds a model's judgment to the pattern screen. `--render` writes pages with no text layer as PNGs, so the agent reads three scanned pages rather than eighty.
