@@ -1,4 +1,4 @@
-# GENERATED from panoply-lib/embed.py (2df73f3) by sync.sh: edit the source and rerun sync.sh, never this copy.
+# GENERATED from panoply-lib/embed.py (45501ba) by sync.sh: edit the source and rerun sync.sh, never this copy.
 """embed: the embedder ladder the Panoply's pieces share.
 
 Ranks text by meaning on whatever this machine can serve, in order: ollama as it
@@ -64,12 +64,16 @@ _ACTIVE = None          # ("ollama", MODEL) | ("fastembed", FE_MODEL), once reso
 _FE = None              # the fastembed model object, loaded once per process
 
 
+SETTINGS = ("OLLAMA", "MODEL", "FE_MODEL", "AUTOSTART", "TIMEOUT", "VENV", "_ACTIVE",
+            "EMBED_CHARS", "BATCH", "FE_BATCH")
+
+
 @contextlib.contextmanager
 def settings(**kw):
     """Set module settings for a block and restore them after, resolved backend
     included: `with embed.settings(TIMEOUT=8, AUTOSTART=False): ...`."""
     g = globals()
-    unknown = [k for k in kw if k not in ("OLLAMA", "MODEL", "FE_MODEL", "AUTOSTART", "TIMEOUT", "VENV", "_ACTIVE")]
+    unknown = [k for k in kw if k not in SETTINGS]
     if unknown:
         raise KeyError(f"not an embed setting: {', '.join(unknown)}")
     saved = {k: g[k] for k in dict.fromkeys((*kw, "_ACTIVE"))}
@@ -234,6 +238,9 @@ def _selftest():
         raise AssertionError("an unknown setting was accepted")
     except KeyError:
         pass
+    with settings(EMBED_CHARS=5, BATCH=2, FE_BATCH=2):
+        assert EMBED_CHARS == 5, "a size setting was refused or not applied"
+    assert EMBED_CHARS == 2000, "settings() did not restore EMBED_CHARS"
     assert tag("ollama") == MODEL and tag("fastembed").startswith("fastembed:")
     import tempfile
     saved = {k: os.environ.pop(k, None) for k in ("PANOPLY_VENV", "LOCKET_VENV", "HOME")}
