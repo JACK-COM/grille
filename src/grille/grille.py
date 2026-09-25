@@ -1632,8 +1632,27 @@ def _selftest_body(d, f, doc):
         urllib.request.getproxies = saved_proxies
     settings = _selftest_scorer(d)
     _selftest_uninstall(d)
+    _selftest_contract(d)
     print(f"selftest ok: ranked by {method}; {len(withheld)} spans withheld, "
           f"{len(benign)} manual lines passed, {len(attacks)} injections caught, dense block kept; {net}; {settings}")
+
+
+def _selftest_contract(d):
+    """Grille's half of panoply-lib's scorer contract: the request it sends a scorer has
+    the contract's shape, and it reads the contract's reply."""
+    try:
+        from . import _scorer_contract as contract
+    except ImportError:
+        import _scorer_contract as contract
+    sent = d / "contract-request.json"
+    cmd = [sys.executable, "-c", "import json, sys; open(sys.argv[1], 'w').write(sys.stdin.read()); "
+           "print(json.dumps(json.loads(sys.argv[2])))", str(sent), json.dumps(contract.REPLY)]
+    got = score_text(cmd, contract.REQUEST["text"], contract.REQUEST["subject"])
+    assert got == contract.probability(contract.REPLY), f"the contract's reply read as {got}"
+    req = json.loads(sent.read_text())
+    assert set(req) <= contract.REQUEST_KEYS and {"questions", "text"} <= set(req), f"request keys {sorted(req)}"
+    assert set(req["questions"]) == set(contract.REQUEST["questions"]), f"question names {sorted(req['questions'])}"
+    assert req["questions"][contract.QUESTION]["type"] == "noul", "the scorer question is not a noul"
 
 
 def _selftest_uninstall(d):
