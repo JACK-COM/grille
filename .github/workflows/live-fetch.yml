@@ -1,0 +1,50 @@
+# Fetches a real PDF over plain http on macOS and reads it with pdftotext. The offline
+# selftest cannot cover this: its stub server is on 127.0.0.1, and the macOS crash this
+# guards against (every child process dying of SIGSEGV after urllib's system proxy
+# lookup on a remote http fetch) never happens for a local address. It needs the
+# network and a third-party host, so it runs weekly, on demand, and when the source
+# changes, apart from the selftest. Read-only like the selftest.
+name: live-fetch
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ["src/grille/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  http-pdf:
+    runs-on: macos-latest
+    timeout-minutes: 10
+    env:
+      URL: http://tctcds.seaplaneops.com/e4wer34.pdf
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
+        with:
+          python-version: "3.14"
+      - name: Install poppler
+        run: brew list poppler &>/dev/null || brew install poppler
+      - name: Does this runner reproduce the crash without the fix
+        # Informational: says whether the check below would have caught the bug here.
+        run: |
+          python -c "
+          import os, subprocess, urllib.request
+          urllib.request.urlopen(os.environ['URL'], timeout=30).read()
+          rc = subprocess.run(['/usr/bin/true']).returncode
+          print('default opener, then a child process: exit', rc, '(reproduces)' if rc < 0 else '(does not reproduce here)')
+          " || true
+      - name: Fetch and read the PDF
+        # which page ranks first depends on the embedder, and a runner has none; that a page
+        # of the PDF came back as text is the property under test
+        run: |
+          set -o pipefail
+          python src/grille/grille.py fetch "$URL" --ask "What is the maximum continuous rating?" --pages 1 | tee out.txt
+          grep -q "read as pdf" out.txt && grep -q "^## page " out.txt
