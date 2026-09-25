@@ -774,6 +774,15 @@ class _Redirects(urllib.request.HTTPRedirectHandler):
         return new
 
 
+def _opener(*handlers):
+    """urllib's opener with proxies from the environment only (HTTP_PROXY, HTTPS_PROXY,
+    NO_PROXY). The default also asks macOS's SystemConfiguration, and after that lookup on a
+    plain-http fetch every child this process starts died of SIGSEGV before exec: pdftotext
+    on the fetched PDF, the scorer, a fallback command. Measured under Python 3.9 and 3.14."""
+    return urllib.request.build_opener(urllib.request.ProxyHandler(urllib.request.getproxies_environment()),
+                                       *handlers)
+
+
 def _open(url, method, timeout):
     """-> (response, redirect handler). Raises ValueError off http, URLError on the wire,
     HTTPError on a 4xx/5xx (the response is on the error)."""
@@ -782,7 +791,7 @@ def _open(url, method, timeout):
     rh = _Redirects()
     req = urllib.request.Request(url, method=method,
                                  headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
-    return urllib.request.build_opener(rh).open(req, timeout=timeout), rh
+    return _opener(rh).open(req, timeout=timeout), rh
 
 
 def fetch(url, cap=FETCH_CAP, timeout=FETCH_TIMEOUT):
@@ -915,7 +924,7 @@ def _relay_model(cfg, msg):
         body = {"model": cfg["model"], "stream": False, "temperature": 0, "messages": messages}
         url = base + "/chat/completions"
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
-    with urllib.request.urlopen(req, timeout=RELAY_TIMEOUT) as r:
+    with _opener().open(req, timeout=RELAY_TIMEOUT) as r:
         raw = r.read(RELAY_CAP + 1)
     if len(raw) > RELAY_CAP:
         raise ValueError(f"reply over the {RELAY_CAP} byte cap")
@@ -1250,7 +1259,7 @@ def _models_at(base, timeout=1.5):
     """The chat model names an OpenAI-compatible server lists, or None when nothing
     answers. A server lists its embedding models too, and one of those cannot relay."""
     try:
-        with urllib.request.urlopen(base.rstrip("/") + "/models", timeout=timeout) as r:
+        with _opener().open(base.rstrip("/") + "/models", timeout=timeout) as r:
             data = json.loads(r.read(1 << 20))
         return [m["id"] for m in data.get("data", [])
                 if isinstance(m, dict) and m.get("id") and not _NOT_CHAT.search(m["id"])]

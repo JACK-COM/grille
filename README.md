@@ -65,6 +65,8 @@ grille configure relay --off
 
 `--fallback "COMMAND"` adds a command tried when the model fails, with the prompt on stdin. The model is called with no tools, because it reads untrusted text; keep a fallback command's tools off for the same reason.
 
+Grille reaches the network through the proxies in `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` only, never those set in macOS System Settings: after asking macOS, Python on a Mac cannot start `pdftotext` or the scorer.
+
 Settings live in `~/.grille/grille.json` (or `$GRILLE_HOME`). `grille schema` writes its schema for an editor, and `grille check` names any misspelled key.
 
 ## Requirements
