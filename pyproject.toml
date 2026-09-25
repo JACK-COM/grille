@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "grille"
+dynamic = ["version"]
+description = "Gives an agent only the pages of a document that answer its question, and withholds passages written to steer it."
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+
+[project.scripts]
+grille = "grille.grille:cli"
+
+[project.urls]
+Homepage = "https://github.com/JACK-COM/grille"
+
+[tool.setuptools.dynamic]
+version = {attr = "grille.grille.__version__"}
+
+[tool.setuptools.package-data]
+grille = ["INSTALL-grille.md"]
