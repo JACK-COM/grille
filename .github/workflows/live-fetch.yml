@@ -1,9 +1,10 @@
-# Fetches a real PDF over plain http on macOS and reads it with pdftotext. The offline
-# selftest cannot cover this: its stub server is on 127.0.0.1, and the macOS crash this
-# guards against (every child process dying of SIGSEGV after urllib's system proxy
-# lookup on a remote http fetch) never happens for a local address. It needs the
-# network and a third-party host, so it runs weekly, on demand, and when the source
-# changes, apart from the selftest. Read-only like the selftest.
+# Fetches a real PDF over plain http on macOS and reads it with pdftotext: the live path
+# the offline selftest's 127.0.0.1 stub cannot reach. The crash that motivated it (every
+# child dying of SIGSEGV after urllib's macOS proxy lookup on a remote http fetch) did
+# not reproduce on GitHub's macOS runner, so the regression guard is the selftest, which
+# fails any request that reaches the default opener; this job is the live smoke test.
+# It needs the network and a third-party host, so it runs weekly, on demand, and when
+# the source changes, apart from the selftest. Read-only like the selftest.
 name: live-fetch
 
 on:

@@ -1620,7 +1620,16 @@ def _selftest_body(d, f, doc):
     assert ws[0] == long[:SCORE_WINDOW] and long.endswith(ws[-1]) and len(ws) == 4, [len(w) for w in ws]
     assert windows("short") == ["short"]
     assert not _PLACEHOLDER.sub("", hold("x", ["r"], f, 9, store)[0]).strip(), "placeholder survives the strip"
-    net = _selftest_fetch(d, doc)
+    # Every request goes through _opener: the default opener's proxy lookup is what left
+    # a Mac unable to start pdftotext, and it never shows against a local stub, so any
+    # call that reaches it fails here instead.
+    def no_system_proxies():
+        raise AssertionError("a request used urllib's default opener, whose macOS proxy lookup crashes children")
+    saved_proxies, urllib.request.getproxies = urllib.request.getproxies, no_system_proxies
+    try:
+        net = _selftest_fetch(d, doc)
+    finally:
+        urllib.request.getproxies = saved_proxies
     settings = _selftest_scorer(d)
     _selftest_uninstall(d)
     print(f"selftest ok: ranked by {method}; {len(withheld)} spans withheld, "
