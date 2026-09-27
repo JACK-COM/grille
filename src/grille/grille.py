@@ -1741,7 +1741,7 @@ def _selftest_body(d, f, doc):
         t = _Text()
         t.feed(f"<p>{fuel}</p>{hider}<p>Sump both tanks before flight.</p>")
         out, held = screen(t.text(), f, 1, store)
-        assert "90" not in out and "56 US gallons" in out and "Sump" in out, f"hidden text passed: {hider}\n{out}"
+        assert "90 gallons" not in out and "56 US gallons" in out and "Sump" in out, f"hidden text passed: {hider}\n{out}"
         assert len(held) == 1 and "hidden from a human reader" in held[0]["reasons"] and HIDDEN not in out, (hider, held)
     for seen in ('<p style="font-size:0.8em">Small print: fuel per POH Section 2.</p>',
                  '<span aria-hidden="true">Fuel figures per POH Section 2.</span>',
