@@ -147,7 +147,7 @@ MANIFEST_SCHEMA = {
             "fallback": {**_ARGV, "description": "A command tried when the model fails: the prompt on stdin, "
                          "the answer on stdout; `{system}` in an argument becomes the system prompt."}}},
         "embed": {"type": "object", "additionalProperties": False, "properties": {
-            "venv": {"type": "string", "description": "fastembed's venv. Default: the one the Panoply "
+            "venv": {"type": "string", "description": "The in-process embedder's venv (onnxruntime, tokenizers, and the model). Default: the one the Panoply "
                      "pieces share (PANOPLY_VENV, else LOCKET_VENV, else whichever of ~/.panoply/venv and "
                      "~/.locket/venv exists, else ~/.panoply/venv)."}}},
     },
@@ -582,9 +582,9 @@ def rank_each(questions, pages):
             if not body:
                 continue
             for j in range(0, len(body), SUBCHUNK):
-                docs.append("search_document: " + body[j:j + SUBCHUNK])
+                docs.append(embed.DOC_PROMPT + body[j:j + SUBCHUNK])
                 owner.append(i)
-        vecs = embed.embed(["search_query: " + q for q in questions] + docs, quiet=True)
+        vecs = embed.embed([embed.QUERY_PROMPT + q for q in questions] + docs, quiet=True)
         qvs, dv = vecs[:len(questions)], vecs[len(questions):]
         bests = []
         for qv in qvs:
@@ -1356,7 +1356,7 @@ def cmd_uninstall(a):
     if store.is_dir():
         print(f"  directory {store}  (withheld spans, every session)")
     if venv:
-        print(f"  directory {venv}  (the fastembed venv; no other Panoply piece is on PATH)")
+        print(f"  directory {venv}  (the embedder venv and its model; no other Panoply piece is on PATH)")
     if not store.is_dir() and not venv:
         print("  nothing it made")
     if a.dry_run:
@@ -1378,9 +1378,9 @@ def cmd_uninstall(a):
             venv.parent.rmdir()             # ~/.panoply, once nothing else is in it
     print("\nleft for you, if you want it gone completely:")
     if others:
-        print(f"  the fastembed venv {embed.VENV}, which {' and '.join(others)} still use{'s' if len(others) == 1 else ''}")
+        print(f"  the embedder venv {embed.VENV}, which {' and '.join(others)} still use{'s' if len(others) == 1 else ''}")
     elif embed.VENV.is_dir() and not venv:
-        print(f"  the fastembed venv you named: {embed.VENV}")
+        print(f"  the embedder venv you named: {embed.VENV}")
     if _home().is_dir():
         print(f"  the settings: rm -r {_home()}   (grille.json and its schema)")
     print("  the command:  brew uninstall jack-com/panoply/grille   (or `uv tool uninstall grille`)")

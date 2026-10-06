@@ -25,13 +25,15 @@ Homebrew installs poppler with it, for reading PDFs. Without Homebrew, `uv tool 
 
 Without one, `sift` ranks by shared words and says so. Either works:
 
-- **ollama**: install it, then `ollama pull nomic-embed-text`. Grille starts the server when it is not running.
-- **fastembed**, in-process with no server, in the virtualenv every Panoply piece shares. If Locket is installed and its venv exists, Grille already uses it. Otherwise make one with Homebrew's Python:
+- **ollama** 0.36 or later: install it, then `ollama pull embeddinggemma-2:270m`. Grille starts the server when it is not running.
+- **onnxruntime**, in-process with no server, in the virtualenv every Panoply piece shares. If Locket is installed and its venv exists, Grille already uses it. Otherwise make one with Homebrew's Python:
 
 ```
 $(brew --prefix python@3.14)/bin/python3.14 -m venv ~/.panoply/venv
-~/.panoply/venv/bin/python -m pip install fastembed
+~/.panoply/venv/bin/python -m pip install onnxruntime tokenizers
 ```
+
+The model, about 314 MB, downloads into the venv on first use. A venv made for `fastembed` already holds both packages.
 
 `PANOPLY_VENV` names another location for every piece at once; `embed.venv` in `grille.json` names one for Grille alone.
 
@@ -72,4 +74,4 @@ Tell the user, in five lines or fewer: the version (`grille --version`), how `si
 
 ## Removal
 
-Run `grille uninstall` first: it removes the withheld spans, and the shared fastembed venv too when no other Panoply piece is on PATH, then prints what is left. Then `brew uninstall jack-com/panoply/grille`, and `rm -r ~/.grille` if the settings should go too.
+Run `grille uninstall` first: it removes the withheld spans, and the shared embedder venv, model included, too when no other Panoply piece is on PATH, then prints what is left. Then `brew uninstall jack-com/panoply/grille`, and `rm -r ~/.grille` if the settings should go too.
