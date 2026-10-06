@@ -9,7 +9,7 @@
 
 *Guard what you read.* One piece of [the Panoply](https://github.com/JACK-COM/homebrew-panoply).
 
-Cardano's grille was a sheet with windows cut in it, laid over a letter so only the words that mattered showed through. Grille does that for an AI agent reading a long document, such as a manufacturer's PDF, a saved web page or a text dump: it returns the eight pages that answer the agent's question instead of all eighty. On the way it withholds any passage written to steer the agent, along with shell commands, hidden characters, and any text a web page hides from a human reader. A withheld passage stays retrievable with `grille show`, so nothing is dropped.
+Cardano's grille was a sheet with windows cut in it, laid over a letter so only the words that mattered showed through. Grille does that for an AI agent reading a long document, such as a manufacturer's PDF, a saved web page or a text dump: it returns the ten pages that answer the agent's question instead of all eighty. On the way it withholds any passage written to steer the agent, along with shell commands, hidden characters, and any text a web page hides from a human reader. A withheld passage stays retrievable with `grille show`, so nothing is dropped.
 
 **[Read the Grille guide](https://github.com/JACK-COM/homebrew-panoply/blob/main/docs/grille/README.md)**: when to use it, a first run against a planted instruction, teaching your agent to reach for it, troubleshooting, and [how to make it yours](https://github.com/JACK-COM/homebrew-panoply/blob/main/docs/grille/make-it-yours.md): your own scorer, your own relay model, and settings.
 

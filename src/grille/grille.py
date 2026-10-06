@@ -7,7 +7,7 @@ otherwise Read whole: a manufacturer's PDF, a saved web page, a text dump. Three
 stages, one command:
 
   sift    Split the document into pages, embed each against the question, return the
-          best pages with page numbers and scores. Eight pages, not eighty.
+          best pages with page numbers and scores. Ten pages, not eighty.
   screen  Withhold any passage written to instruct an AI agent rather than inform a
           reader, or carrying a shell command or hidden characters, and any text an
           HTML page hides from a human reader, whatever it says. The passage is
@@ -87,7 +87,11 @@ try:                    # the embedder ladder: a panoply-lib copy, imported as a
 except ImportError:     # or flat, beside this file, as the formula installs it
     import _embed as embed
 
-PAGES_DEFAULT = 8
+# Ten, not eight: on 123 paraphrased questions over five aircraft PDFs, EmbeddingGemma 2
+# put the answering page in its top ten 86 times, where nomic-embed-text's top eight held
+# it 84 times; the two pages cost about 1k input tokens a question. One model then serves
+# every Panoply piece. Smaller sub-chunks and fusing word overlap both failed to close it.
+PAGES_DEFAULT = 10
 SUBCHUNK = 1800          # a -layout page runs 3-5k chars; the embedder cuts a text at 2000
 CHUNK_TEXT = 1800        # page size for a document with no pages of its own
 EMPTY_PAGE = 20          # fewer stripped chars than this and the page has no text layer
@@ -582,9 +586,10 @@ def rank_each(questions, pages):
             if not body:
                 continue
             for j in range(0, len(body), SUBCHUNK):
-                docs.append(embed.DOC_PROMPT + body[j:j + SUBCHUNK])
+                docs.append(body[j:j + SUBCHUNK])
                 owner.append(i)
-        vecs = embed.embed([embed.QUERY_PROMPT + q for q in questions] + docs, quiet=True)
+        # bare text: the model's retrieval prompts never beat it here, nor on Locket's task
+        vecs = embed.embed(list(questions) + docs, quiet=True)
         qvs, dv = vecs[:len(questions)], vecs[len(questions):]
         bests = []
         for qv in qvs:
