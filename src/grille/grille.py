@@ -1492,6 +1492,9 @@ def cmd_migrate(a):
     except (OSError, TimeoutError) as e:
         print(f"grille: could not move grille.json's embed settings ({e}); Grille still reads them", file=sys.stderr)
         return 1
+    if moved and moved.startswith("note:"):  # the Panoply settings could not be read: nothing moved
+        print(f"grille: {moved[len('note: '):]}", file=sys.stderr)
+        return 1
     print(moved or "migrate: nothing pending")
     return 0
 
