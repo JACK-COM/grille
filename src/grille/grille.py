@@ -79,7 +79,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
-__version__ = "0.3.1"
+__version__ = "0.3.2"
 HERE = Path(__file__).resolve().parent
 
 try:                    # the embedder ladder: a panoply-lib copy, imported as a package member
