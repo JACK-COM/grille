@@ -1065,16 +1065,29 @@ def save_fetched(url, data, ctype, charset, store):
     return path, kind
 
 
+def dropped_path(url, final):
+    """True when a redirect took a request for a document to the bare root of a site, the
+    shape of a bot wall, a login wall or a missing page sent home: the body is not the page."""
+    def root(u):
+        return not urllib.parse.urlsplit(u).path.strip("/")
+    return final is not None and not root(url) and root(final)
+
+
+DROPPED = "redirected to the root of a site, so this is probably a wall or a homepage, not the page asked for"
+
+
 def verify(url, timeout=VERIFY_TIMEOUT):
     """-> one row per URL: status, final address, content type, redirects, error. HEAD
     first; a server that answers HEAD with an error gets one GET, whose body is never read."""
-    row = {"url": url, "status": None, "final": None, "type": None, "redirects": 0, "error": None}
+    row = {"url": url, "status": None, "final": None, "type": None, "redirects": 0,
+           "dropped_path": False, "error": None}
     for method in ("HEAD", "GET"):
         try:
             resp, rh = _open(url, method, timeout)
             with resp:
                 row.update(status=resp.status, final=resp.geturl(),
-                           type=resp.headers.get_content_type(), redirects=rh.count)
+                           type=resp.headers.get_content_type(), redirects=rh.count,
+                           dropped_path=dropped_path(url, resp.geturl()))
             return row
         except urllib.error.HTTPError as e:
             if 300 <= e.code < 400:   # a followed redirect never lands here: this one was refused
@@ -1082,7 +1095,8 @@ def verify(url, timeout=VERIFY_TIMEOUT):
                 return row
             if method == "HEAD":
                 continue          # many hosts refuse HEAD and serve GET; GET is the ground truth
-            row.update(status=e.code, final=e.geturl(), type=e.headers.get_content_type())
+            row.update(status=e.code, final=e.geturl(), type=e.headers.get_content_type(),
+                       dropped_path=dropped_path(url, e.geturl()))
             return row
         except (urllib.error.URLError, ValueError, OSError) as e:
             row["error"] = str(getattr(e, "reason", None) or e)
@@ -1343,6 +1357,8 @@ def cmd_fetch(a):
     print(f"{len(data)} bytes, {ctype}, read as {kind}"
           + (f", {hops} redirect{'s' if hops != 1 else ''} to {final}" if hops else "")
           + f"  \nsaved {path}")
+    if dropped_path(a.url, final):
+        print(f"warning: {DROPPED}")
     if kind == "html":
         t = _Text()
         t.feed(_decode(data, charset))
@@ -1373,6 +1389,8 @@ def cmd_verify(a):
             line = f"{r['status']}  {r['type'] or '-'}  {hop}  {r['url']}"
             if r["final"] and r["final"] != r["url"]:
                 line += f" -> {r['final']}"
+            if r["dropped_path"]:
+                line += f"  ({DROPPED})"
             print(line)
     return 0 if all(r["status"] and 200 <= r["status"] < 300 for r in rows) else 1
 
@@ -2180,13 +2198,13 @@ def _selftest_fetch(d, doc):
         def do_HEAD(self):
             if self.path == "/nohead":
                 self.send_error(405)
-            elif self.path == "/r":
-                self._redirect("/manual.txt")
+            elif self.path in ("/r", "/gone"):
+                self._redirect("/manual.txt" if self.path == "/r" else "/")
             else:
                 super().do_HEAD()
 
         def do_GET(self):
-            routes = {"/r": "/manual.txt", "/loop": "/loop", "/off": "file:///etc/hosts"}
+            routes = {"/r": "/manual.txt", "/gone": "/", "/loop": "/loop", "/off": "file:///etc/hosts"}
             if self.path in routes:
                 self._redirect(routes[self.path])
             elif self.path in ("/nohead", "/bogus", "/markup"):
@@ -2260,7 +2278,9 @@ def _selftest_fetch(d, doc):
         assert _kind_of(data, ctype) == "text", "an explicit text/plain must not be sniffed as html"
         latin = "<html><head><meta charset=iso-8859-1></head><body>caf\u00e9</body></html>".encode("latin-1")
         assert "caf\u00e9" in _decode(latin, None), "meta charset ignored"
-        rows = {u: verify(f"{base}{u}") for u in ("/manual.txt", "/nohead", "/r", "/missing", "/loop")}
+        rows = {u: verify(f"{base}{u}") for u in ("/manual.txt", "/nohead", "/r", "/gone", "/missing", "/loop")}
+        assert rows["/gone"]["dropped_path"] and not rows["/r"]["dropped_path"], rows
+        assert not dropped_path(f"{base}/", f"{base}/"), "a request for the root dropped nothing"
         assert rows["/manual.txt"]["status"] == 200 and rows["/manual.txt"]["redirects"] == 0
         assert rows["/nohead"]["status"] == 200, rows["/nohead"]         # HEAD 405, GET 200
         assert rows["/r"]["status"] == 200 and rows["/r"]["redirects"] == 1 and rows["/r"]["final"].endswith("/manual.txt")
@@ -2275,6 +2295,18 @@ def _selftest_fetch(d, doc):
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
             main(["fetch", f"{base}/app.html", "--ask", "anything"])
         assert "JavaScript app" in out.getvalue(), "app shell not named"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            rc = main(["fetch", f"{base}/gone", "--ask", "anything"])
+        assert rc == 0 and DROPPED in out.getvalue(), "a redirect to the root went unnamed, or failed"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            main(["verify", f"{base}/gone"])
+        assert DROPPED in out.getvalue(), "verify did not name the redirect to the root"
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+            main(["fetch", f"{base}/r", "--ask", "anything"])
+        assert DROPPED not in out.getvalue(), "a redirect to a document was named a wall"
         m = _manifest()
         try:
             _write_manifest({**m, "relay": {"url": base, "model": "stub", "api": "ollama", "think": True}})
