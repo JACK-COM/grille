@@ -1591,7 +1591,10 @@ def _configure_embedder(a):
     if empty:
         sys.exit(f"grille: --{empty[0].replace('_', '-')} is empty; pass `default` to remove the setting")
     if "venv" in changes:                   # absolute: a relative path would resolve against each run's cwd
-        changes["venv"] = os.path.abspath(Path(changes["venv"]).expanduser())
+        venv = os.path.expanduser(changes["venv"])
+        if venv.startswith("~"):
+            sys.exit(f"grille: --venv {changes['venv']}: no such user's home to expand")
+        changes["venv"] = os.path.abspath(venv)
     if "ollama_host" in changes and not changes["ollama_host"].startswith(("http://", "https://")):
         sys.exit(f"grille: --ollama-host needs a scheme, e.g. http://{changes['ollama_host']}")
     if changes or clearing or a.reset:
