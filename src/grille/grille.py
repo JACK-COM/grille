@@ -207,7 +207,7 @@ def legacy_note():
     """A line while grille.json still holds Grille 0.2's embed section, else None."""
     if _legacy_embed() is None:
         return None
-    return f"note: grille.json's embed settings now belong in {panoply.path()}; `grille configure embedder` moves them"
+    return f"note: grille.json's embed settings now belong in {panoply.path()}; `grille migrate` moves them"
 
 
 # ---------------------------------------------------------------- embedder settings
@@ -1484,6 +1484,18 @@ def _models_at(base, timeout=1.5):
         return None
 
 
+def cmd_migrate(a):
+    """Every step an upgrade leaves for this machine, each a no-op once done. A release
+    that needs a new step adds it here."""
+    try:
+        moved = migrate_embed()
+    except (OSError, TimeoutError) as e:
+        print(f"grille: could not move grille.json's embed settings ({e}); Grille still reads them", file=sys.stderr)
+        return 1
+    print(moved or "migrate: nothing pending")
+    return 0
+
+
 # The configure flags each setting takes; any other one given is refused, never ignored.
 CONFIGURE_FLAGS = {
     "relay": ("detect", "url", "model", "api", "api_key_env", "think", "fallback", "off"),
@@ -1601,7 +1613,7 @@ def _configure_embedder(a):
         if a.shared:
             data = panoply.load()[0]
             for k in sorted(set(changes) | clearing | (set(embed.CONFIG_KEYS) if a.reset else set())):
-                for p in panoply.overriding(data, "embed", k):
+                for p in panoply.overriding(data, "embed", k, usable=embed._usable):
                     print(f"note: {p} sets its own {k}, so this change does not reach {p}")
     print(f"embedder, as Grille uses it ({panoply.path()}; source: env, grille's own section, global, or default)")
     for key, (value, src) in apply_embed().items():
@@ -1805,8 +1817,14 @@ def _selftest_embedder():
         except SystemExit as e:
             assert "--reset" in str(e.code), e.code
         cfg.unlink()
-        main(["configure", "embedder", "--model", "m-all", "--global"])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            assert main(["migrate"]) == 0 and "moved" in out.getvalue(), out.getvalue()
         assert "embed" not in _manifest(), "the older embed section was not moved"
+        with contextlib.redirect_stdout(out):
+            main(["migrate"])
+        assert out.getvalue().endswith("migrate: nothing pending\n"), "a second migrate did work"
+        main(["configure", "embedder", "--model", "m-all", "--global"])
         assert panoply.load()[0] == {"embed": {"model": "m-all"}, "grille": {"embed": {"venv": "/old/v"}}}, panoply.load()
         main(["configure", "embedder", "--model", "m-own", "--no-autostart"])
         got = apply_embed()
@@ -2343,6 +2361,8 @@ def main(argv=None):
     v.add_argument("url", nargs="+")
     v.add_argument("--json", action="store_true")
     v.set_defaults(fn=cmd_verify)
+    sub.add_parser("migrate", help="finish an upgrade: move older settings to where this version keeps them; "
+                   "safe to run any time").set_defaults(fn=cmd_migrate)
     k = sub.add_parser("check", help="positive check: poppler, embedder, scorer, relay, settings, store")
     k.set_defaults(fn=cmd_check)
     g = sub.add_parser("configure", help="write a setting to grille.json, or the embedder's to ~/.panoply/config.json",
@@ -2423,7 +2443,7 @@ Every window of every page is one scorer call, and the count is printed before t
         p.print_help()
         return 2
     apply_embed()
-    if a.cmd not in ("configure", "help", "selftest", "schema", "check", "uninstall"):
+    if a.cmd not in ("configure", "help", "selftest", "schema", "check", "uninstall", "migrate"):
         # an unfinished setup says so on every run until it is finished or declined
         if relay_settings() is None:
             print(f"grille: {RELAY_SETUP}", file=sys.stderr)
