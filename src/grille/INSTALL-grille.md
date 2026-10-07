@@ -35,7 +35,7 @@ $(brew --prefix python@3.14)/bin/python3.14 -m venv ~/.panoply/venv
 
 The model, about 314 MB, downloads into the venv on first use. A venv made for `fastembed` already holds both packages.
 
-`PANOPLY_VENV` names another location for every piece at once; `embed.venv` in `grille.json` names one for Grille alone.
+`PANOPLY_VENV` names another location for every piece at once; `grille configure embedder --venv PATH` names one for Grille alone, in Grille's section of `~/.panoply/config.json`.
 
 ## Step 3. The relay for --decipher (the user's choice)
 

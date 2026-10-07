@@ -86,6 +86,10 @@ try:                    # the embedder ladder: a panoply-lib copy, imported as a
     from . import _embed as embed
 except ImportError:     # or flat, beside this file, as the formula installs it
     import _embed as embed
+try:                    # ~/.panoply/config.json, the settings the pieces share: a panoply-lib copy too
+    from . import _settings as panoply
+except ImportError:
+    import _settings as panoply
 
 # Ten, not eight: on 123 paraphrased questions over five aircraft PDFs, EmbeddingGemma 2
 # put the answering page in its top ten 86 times, where nomic-embed-text's top eight held
@@ -150,10 +154,6 @@ MANIFEST_SCHEMA = {
             "think": {"type": "boolean", "description": "ollama API only: send think, for a reasoning model."},
             "fallback": {**_ARGV, "description": "A command tried when the model fails: the prompt on stdin, "
                          "the answer on stdout; `{system}` in an argument becomes the system prompt."}}},
-        "embed": {"type": "object", "additionalProperties": False, "properties": {
-            "venv": {"type": "string", "description": "The in-process embedder's venv (onnxruntime, tokenizers, and the model). Default: the one the Panoply "
-                     "pieces share (PANOPLY_VENV, else LOCKET_VENV, else whichever of ~/.panoply/venv and "
-                     "~/.locket/venv exists, else ~/.panoply/venv)."}}},
     },
 }
 RELAY_SETUP = ("--decipher is not set up: name a chat model with `grille configure relay --url URL "
@@ -195,9 +195,59 @@ def _write_manifest(m):
 
 
 def manifest_findings():
-    """Structural problems in grille.json, as lines; [] when clean or absent."""
+    """Structural problems in grille.json, as lines; [] when clean or absent. An older
+    grille.json's embed section is named as moved rather than unknown."""
     found = _schema_lib().validate_file(_home() / "grille.json", MANIFEST_SCHEMA)
-    return ["grille.json" + (f[len("manifest"):] if f.startswith("manifest") else ": " + f) for f in found]
+    out = ["grille.json" + (f[len("manifest"):] if f.startswith("manifest") else ": " + f)
+           for f in found if "unknown key 'embed'" not in f]
+    if _legacy_embed() is not None:
+        out.append(f"grille.json: embed now lives in {panoply.path()}; `grille configure embedder` moves it")
+    return out
+
+
+# ---------------------------------------------------------------- embedder settings
+
+def _legacy_embed():
+    """grille.json's embed section from Grille 0.2, while it remains, else None."""
+    e = _manifest().get("embed")
+    return {k: v for k, v in e.items() if k in embed.CONFIG_KEYS} if isinstance(e, dict) else None
+
+
+def embed_layers(data=None):
+    """Grille's view of the embed settings, highest first: its own section of the Panoply
+    settings, then grille.json's older section until it is moved, then the top level."""
+    data = panoply.load()[0] if data is None else data
+    out = panoply.layers("grille", "embed", data)
+    legacy = _legacy_embed()
+    if legacy:
+        out.insert(1 if out and out[0][0] == "grille" else 0, ("grille.json", legacy))
+    return out
+
+
+def apply_embed():
+    """Put Grille's embed settings into the embedder, under the environment."""
+    try:
+        return embed.apply_config(embed_layers())
+    except Exception:                       # nothing in a settings file may stop a run
+        return embed.apply_config(None)
+
+
+def migrate_embed():
+    """Move grille.json's older embed section into Grille's own section of the Panoply
+    settings, where a key already set there keeps its value. Returns a line, or None."""
+    legacy = _legacy_embed()
+    if legacy is None:
+        return None
+    if legacy:
+        def change(data, findings):
+            own = dict(panoply.layers("grille", "embed", data)).get("grille", {})
+            add = {k: v for k, v in legacy.items() if k not in own}
+            return panoply.edit(data, "embed", add, piece="grille") if add else None
+        panoply.update(change)
+    m = _manifest()
+    m.pop("embed", None)
+    _write_manifest(m)
+    return f"moved grille.json's embed settings into {panoply.path()}"
 
 
 def write_schema():
@@ -1326,8 +1376,9 @@ def cmd_check(a):
     print(f"pdftotext: {'ok' if ok else 'missing (brew install poppler); sift and screen need it for PDFs'}")
     print(f"pdftoppm: {'ok' if shutil.which('pdftoppm') else 'missing; only --render needs it'}")
     try:
+        sources = apply_embed()
         name, model = embed.resolve_backend()
-        print(f"embedder: {name} ({model})")
+        print(f"embedder: {name} ({model}" + (f"; {sources['model'][1]})" if name == "ollama" else ")"))
     except Exception as e:
         print(f"embedder: none reachable ({str(e).splitlines()[0][:80]}); sift falls back to word overlap")
     for finding in manifest_findings():
@@ -1388,6 +1439,8 @@ def cmd_uninstall(a):
         print(f"  the embedder venv you named: {embed.VENV}")
     if _home().is_dir():
         print(f"  the settings: rm -r {_home()}   (grille.json and its schema)")
+    if isinstance(panoply.load()[0].get("grille"), dict):
+        print(f"  Grille's embedder overrides: the \"grille\" section of {panoply.path()}")
     print("  the command:  brew uninstall jack-com/panoply/grille   (or `uv tool uninstall grille`)")
     return 0
 
@@ -1414,6 +1467,14 @@ def _models_at(base, timeout=1.5):
 
 
 def cmd_configure(a):
+    try:
+        moved = migrate_embed()
+    except OSError as e:
+        moved = f"warning: could not move grille.json's embed settings ({e}); Grille still reads them"
+    if moved:
+        print(moved, file=sys.stderr)
+    if a.what == "embedder":
+        return _configure_embedder(a)
     m = _manifest()
     if a.what == "relay":
         if a.detect:
@@ -1470,6 +1531,43 @@ def cmd_configure(a):
                 s["withhold"] = a.withhold
             m["score"] = s
     print(f"wrote {_write_manifest(m)}")
+    return 0
+
+
+def _configure_embedder(a):
+    """Write Grille's own embed settings, or with --global the ones every piece shares, then
+    show what Grille now uses and where each value comes from."""
+    keys = {"model": a.model, "ollama_host": a.ollama_host, "venv": a.venv}
+    clearing = {k for k, v in keys.items() if v == "default"}
+    changes = {k: v for k, v in keys.items() if v not in (None, "default")}
+    if a.autostart is not None:
+        changes["autostart"] = a.autostart
+    if "venv" in changes:                   # absolute: a relative path would resolve against each run's cwd
+        changes["venv"] = os.path.abspath(Path(changes["venv"]).expanduser())
+    if "ollama_host" in changes and not changes["ollama_host"].startswith(("http://", "https://")):
+        sys.exit(f"grille: --ollama-host needs a scheme, e.g. http://{changes['ollama_host']}")
+    if changes or clearing or a.reset:
+        problems = []
+
+        def change(data, findings):
+            if findings and not a.reset:
+                problems.extend(findings)
+                return None
+            return panoply.edit(data, "embed", changes, clearing, a.reset, None if a.shared else "grille")
+        written = panoply.update(change)
+        if problems:
+            sys.exit(f"grille: {panoply.path()} has problems; fix them, or pass --reset to rewrite this "
+                     "section anyway:\n  " + "\n  ".join(problems))
+        print(f"wrote {panoply.path()}" if written else "no change to write")
+        if a.shared:
+            data = panoply.load()[0]
+            for k in sorted(set(changes) | clearing | (set(embed.CONFIG_KEYS) if a.reset else set())):
+                for p in panoply.overriding(data, "embed", k):
+                    print(f"note: {p} sets its own {k}, so this change does not reach {p}")
+    print(f"embedder, as Grille uses it ({panoply.path()}; source: env, grille's own section, global, or default)")
+    for key, (value, src) in apply_embed().items():
+        shown = ("on" if value else "off") if key == "autostart" else value
+        print(f"  {key:12s} {str(shown):40s} {src}")
     return 0
 
 
@@ -1543,9 +1641,10 @@ def selftest():
     f.write_text(doc)
     # Settings in a throwaway home, a session store of its own, and a stand-in scorer: no
     # --score here reaches a model.
-    saved = {k: os.environ.get(k) for k in ("GRILLE_HOME", "GRILLE_SESSION")}
+    saved = {k: os.environ.get(k) for k in ("GRILLE_HOME", "GRILLE_SESSION", "PANOPLY_CONFIG")}
     os.environ["GRILLE_HOME"] = str(d / "home")
     os.environ["GRILLE_SESSION"] = "selftest"
+    os.environ["PANOPLY_CONFIG"] = str(d / "panoply" / "config.json")
     try:
         _write_manifest({"score": {"command": _stub_scorer("0.9 if 'APPROVED' in t else 0.02"), "withhold": 0.3}})
         return _selftest_body(d, f, doc)
@@ -1634,9 +1733,42 @@ def _selftest_scorer(d):
         found = " | ".join(manifest_findings())
         assert "'modle', did you mean 'model'" in found and "'scroe', did you mean 'score'" in found, found
         assert json.loads(write_schema().read_text())["$id"] == "grille.schema.json"
+        _selftest_embedder()
     finally:
         _write_manifest(m)
     return "scorer, relay settings, configure and calibrate ok against stand-ins"
+
+
+def _selftest_embedder():
+    """Grille's own embed section over the global one, under the environment, and the move
+    of an older grille.json's embed section."""
+    names = [v for _, env in embed.CONFIG_KEYS.values() for v in env]
+    saved = {v: os.environ.pop(v, None) for v in names}
+    try:
+        with embed.settings(), contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            _write_manifest({"embed": {"venv": "/old/v"}})
+            assert apply_embed()["venv"] == (Path("/old/v"), "grille.json"), "an older grille.json venv was ignored"
+            assert any("configure embedder` moves it" in f for f in manifest_findings()), manifest_findings()
+            main(["configure", "embedder", "--model", "m-all", "--global"])
+            assert "embed" not in _manifest(), "the older embed section was not moved"
+            assert panoply.load()[0] == {"embed": {"model": "m-all"}, "grille": {"embed": {"venv": "/old/v"}}}, \
+                panoply.load()
+            main(["configure", "embedder", "--model", "m-own"])
+            got = apply_embed()
+            assert got["model"] == ("m-own", "grille") and got["venv"] == (Path("/old/v"), "grille"), got
+            os.environ["PANOPLY_VENV"] = "/env/v"
+            assert apply_embed()["venv"] == (Path("/env/v"), "env PANOPLY_VENV"), "grille's venv beat the environment"
+            del os.environ["PANOPLY_VENV"]
+            main(["configure", "embedder", "--model", "default"])
+            assert apply_embed()["model"] == ("m-all", "global")
+            main(["configure", "embedder", "--reset"])
+            assert panoply.load()[0] == {"embed": {"model": "m-all"}}, panoply.load()
+            assert not manifest_findings(), manifest_findings()
+    finally:
+        for v, val in saved.items():
+            if val is not None:
+                os.environ[v] = val
+        apply_embed()
 
 
 def _selftest_body(d, f, doc):
@@ -2151,7 +2283,7 @@ def main(argv=None):
     v.set_defaults(fn=cmd_verify)
     k = sub.add_parser("check", help="positive check: poppler, embedder, scorer, relay, settings, store")
     k.set_defaults(fn=cmd_check)
-    g = sub.add_parser("configure", help="write a setting to grille.json",
+    g = sub.add_parser("configure", help="write a setting to grille.json, or the embedder's to ~/.panoply/config.json",
                        formatter_class=argparse.RawDescriptionHelpFormatter, epilog="""examples:
   grille configure relay --detect                          list the local chat servers answering, with their models
   grille configure relay --url http://127.0.0.1:1234/v1 --model qwen3-8b
@@ -2164,11 +2296,21 @@ def main(argv=None):
   grille configure score --command "my-scorer --json"      another scorer; it needs a threshold before it withholds
   grille configure score --withhold 0.35                   a threshold for the configured scorer
   grille configure score --reset                           back to Augur and its calibrated threshold
+  grille configure embedder                                show the embedder Grille uses and where each value comes from
+  grille configure embedder --model nomic-embed-text       Grille's own model; other pieces keep theirs
+  grille configure embedder --model default                follow the global model again
+  grille configure embedder --ollama-host http://studio.local:11434 --global
+                                                           every piece that does not set its own
+
+The embedder settings live in ~/.panoply/config.json, which every Panoply piece reads: Grille's
+own section first, then the top level (--global), then the shipped default. An environment
+variable (MEMFIND_MODEL, OLLAMA_HOST, MEMFIND_NO_AUTOSTART=1, PANOPLY_VENV) beats them all.
 """)
-    g.add_argument("what", choices=["relay", "score"])
+    g.add_argument("what", choices=["relay", "score", "embedder"])
     g.add_argument("--detect", action="store_true", help="relay: probe the usual local server ports and print what answers")
     g.add_argument("--url", help="relay: server base URL")
-    g.add_argument("--model", help="relay: model name")
+    g.add_argument("--model", help="relay: model name; embedder: the ollama embedding model, as `ollama list` "
+                   "names it, or `default` to remove the setting")
     g.add_argument("--api", choices=["openai", "ollama"], help="relay: request format (default openai)")
     g.add_argument("--api-key-env", metavar="VAR", help="relay: environment variable holding a bearer key")
     g.add_argument("--think", action="store_true", help="relay, ollama API: send think, for a reasoning model")
@@ -2177,7 +2319,17 @@ def main(argv=None):
     g.add_argument("--off", action="store_true", help="relay: turn --decipher off")
     g.add_argument("--command", help="score: the scorer command line")
     g.add_argument("--withhold", type=float, help="score: the threshold, above 0 and at most 1")
-    g.add_argument("--reset", action="store_true", help="score: back to the default scorer")
+    g.add_argument("--reset", action="store_true", help="score: back to the default scorer; embedder: remove "
+                   "every setting from the section being written")
+    g.add_argument("--ollama-host", metavar="URL", help="embedder: where ollama answers, with its scheme, or `default`")
+    auto = g.add_mutually_exclusive_group()
+    auto.add_argument("--autostart", dest="autostart", action="store_true", default=None,
+                      help="embedder: start `ollama serve` when the port is closed (the default)")
+    auto.add_argument("--no-autostart", dest="autostart", action="store_false",
+                      help="embedder: never start ollama")
+    g.add_argument("--venv", metavar="PATH", help="embedder: the in-process rung's virtualenv, or `default`")
+    g.add_argument("--global", dest="shared", action="store_true",
+                   help="embedder: write the settings every Panoply piece shares, not Grille's own")
     g.set_defaults(fn=cmd_configure)
     b = sub.add_parser("calibrate", help="measure the configured scorer on labelled pages; --write saves its threshold",
                        formatter_class=argparse.RawDescriptionHelpFormatter, epilog="""An items file is
@@ -2207,10 +2359,7 @@ Every window of every page is one scorer call, and the count is printed before t
     if not a.cmd:
         p.print_help()
         return 2
-    e = _manifest().get("embed")
-    venv = e.get("venv") if isinstance(e, dict) else None
-    if isinstance(venv, str) and venv:
-        embed.VENV = Path(venv).expanduser()
+    apply_embed()
     if a.cmd not in ("configure", "help", "selftest", "schema", "check", "uninstall"):
         # an unfinished setup says so on every run until it is finished or declined
         if relay_settings() is None:
