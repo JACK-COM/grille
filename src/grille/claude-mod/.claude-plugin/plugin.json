@@ -1,0 +1,5 @@
+{
+  "name": "grille",
+  "version": "0.1.0",
+  "description": "Answers the WebFetch tool through grille fetch --decipher, so a page is screened for injections before any model reads it; curl, MCP fetchers and the browser are not covered"
+}
