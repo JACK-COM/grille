@@ -46,13 +46,19 @@ export const register: Register = on => {
     const grille = `${$.plugin.root}/../grille.py`
     const started = Date.now()
 
+    // The host's environment lacks CLAUDE_CODE_SESSION_ID (only Bash children
+    // get it), so without GRILLE_SESSION withheld spans land in the `default`
+    // store, where the session's own `grille show <id>` never looks. A failed
+    // lookup falls back to that store rather than refusing the fetch.
+    const session = await $.session.id().catch(() => undefined)
+
     let ran
     try {
       // `--ask=` and `--` keep a prompt or URL that starts with a dash from
       // being read as a flag (a URL of `--help` otherwise prints usage, exit 0).
       ran = await $.process.run(
         [grille, 'fetch', '--decipher', `--ask=${e.prompt}`, '--', e.url],
-        { timeoutMs: TIMEOUT_MS },
+        { timeoutMs: TIMEOUT_MS, ...(session && { env: { GRILLE_SESSION: session } }) },
       )
     } catch {
       return refuse(e.url, 'grille could not run or ran past its time limit.')

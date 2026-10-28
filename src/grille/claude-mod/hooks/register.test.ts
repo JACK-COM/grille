@@ -2,6 +2,7 @@ import { expect, test } from 'claude-code/testing'
 
 const CALL = { tool: 'WebFetch', url: 'https://example.com/spec.pdf', prompt: 'What is the stall speed?' } as const
 const ANSWER = '# grille fetch: https://example.com/spec.pdf\n\nVs0: 52 KCAS\n'
+const SESSION = '2b8db64b-0000-4000-8000-000000000000'
 
 type Run = { exitCode: number; stdout: string; stderr: string; isStdoutTruncated?: boolean }
 
@@ -11,12 +12,15 @@ const stand = (
   on: Parameters<Parameters<typeof test>[1]>[1],
   run: Run | (() => never),
   decision: 'allow' | 'ask' | 'deny' = 'allow',
+  session: string | (() => never) = SESSION,
 ) => {
-  const seen = { argv: [] as readonly string[], timeoutMs: 0, webFetched: 0 }
+  const seen = { argv: [] as readonly string[], timeoutMs: 0, env: {} as Record<string, string>, webFetched: 0 }
+  on('session.id', () => ({ value: typeof session === 'function' ? session() : session }))
   on('tool.check', () => ({ decision, reason: decision === 'deny' ? 'WebFetch(domain:example.com) is denied' : undefined }))
   on('process.run', (_, e) => {
     seen.argv = e.argv
     seen.timeoutMs = e.init?.timeoutMs ?? 0
+    seen.env = e.init?.env ?? {}
     return { value: typeof run === 'function' ? run() : run }
   })
   on('tool.call', () => {
@@ -59,6 +63,25 @@ test('a WebFetch is answered by grille fetch --decipher, never by the tool', asy
   expect(ran.result?.result).toContain('Vs0: 52 KCAS')
   expect(ran.result?.url).toBe(CALL.url)
   expect(seen.webFetched).toBe(0)
+})
+
+test('grille runs under the session\'s own store, so `grille show <id>` finds what it withheld', async ($, on) => {
+  const seen = stand(on, { exitCode: 0, stdout: ANSWER, stderr: '' })
+
+  await $.tool.call(CALL)
+
+  expect(seen.env.GRILLE_SESSION).toBe(SESSION)
+})
+
+test('a failed session lookup falls back to the default store rather than refusing', async ($, on) => {
+  const seen = stand(on, { exitCode: 0, stdout: ANSWER, stderr: '' }, 'allow', () => {
+    throw new Error('no session')
+  })
+
+  const ran = await $.tool.call(CALL)
+
+  expect(ran.result?.result).toContain('Vs0: 52 KCAS')
+  expect(seen.env.GRILLE_SESSION).toBeUndefined()
 })
 
 test('a dash-led prompt or URL reaches grille as a value, never a flag', async ($, on) => {
