@@ -327,6 +327,9 @@ def store_dir():
 HIDDEN = ""        # private-use mark on each line a human reader would not see
 COMMENT_WORDS = 6        # an HTML comment with this many words is prose, not markup
 HIDDEN_WRAP = 400       # a hidden run is marked in pieces this long, so no later split drops the mark
+# hrefs left out of the text: an anchor, a script, inline data or a contact names no document
+LINK_SKIP = ("#", "javascript:", "mailto:", "data:", "tel:", "sms:", "blob:")
+LINK_WORDS = 12          # an href decoding to this many words is prose; a %20 filename runs to ~10
 # Inline styles that hide text from a human reader, read with whitespace removed. Only the
 # element's own style is read: a stylesheet class that hides text is not resolved, so the
 # screen still reads that by content. The sr-only pattern (a 1px box clipped to nothing)
@@ -397,12 +400,13 @@ class _Text(html.parser.HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.out, self._skip = [], 0        # out: (text, chrome frames open around it)
-        # [tag, is_chrome, is_content, ended, hides, shields] per open element; shields are
-        # the content frames that hold a header, footer or aside as content
+        # [tag, is_chrome, is_content, ended, hides, shields, link] per open element; shields
+        # are the content frames that hold a header, footer or aside as content, and link is
+        # an <a>'s (href, index into out where its text starts)
         self._open = []
 
-    def _in_chrome(self):
-        return tuple(f for f in self._open if f[1] or f[5])
+    def _in_chrome(self, frames=None):
+        return tuple(f for f in (self._open if frames is None else frames) if f[1] or f[5])
 
     @staticmethod
     def _held(f):
@@ -420,7 +424,8 @@ class _Text(html.parser.HTMLParser):
             chrome = (tag == "nav" or role in self.CHROME_ROLES
                       or (tag in self.PAGE_CHROME and not content))
             shields = content if tag in self.PAGE_CHROME and not chrome else []
-            self._open.append([tag, chrome, tag in self.CONTENT, False, _hides(attrs), shields])
+            link = ((dict(attrs).get("href") or "").strip(), len(self.out)) if tag == "a" else None
+            self._open.append([tag, chrome, tag in self.CONTENT, False, _hides(attrs), shields, link])
         if tag in self.SKIP:
             self._skip += 1
         elif tag in self.BLOCK:
@@ -439,11 +444,11 @@ class _Text(html.parser.HTMLParser):
             body = self.out.pop()[0].strip("\n") + "\n" + body      # one hidden run, one block
         self.out.append(("\n\n" + body + "\n\n", chrome))
 
-    def _is_hidden(self):
+    def _is_hidden(self, frames=None):
         """Whether text here is hidden: a hard hider anywhere above, or the nearest
         visibility setting saying hidden."""
         state = False
-        for f in self._open:
+        for f in (self._open if frames is None else frames):
             if f[4] == "hard":
                 return True
             if f[4] in ("soft", "shown"):
@@ -456,18 +461,42 @@ class _Text(html.parser.HTMLParser):
         if not self._skip and len(re.findall(r"[A-Za-z]{2,}", data)) >= COMMENT_WORDS:
             self._hidden(data)
 
+    def _link(self, d):
+        """Writes the href of the closing <a> at depth d after its text, as `text (href)`, kept
+        as the page wrote it: sift reads a saved file and never knows the page's URL. A reader
+        never sees an href, so one that decodes to prose is withheld like a hidden comment."""
+        frames = self._open[:d + 1]         # the link's own chrome and hiding, not its children's
+        href, start = frames[-1][6]
+        text = " ".join("".join(t for t, _ in self.out[start:]).split())
+        # browsers drop control characters and spaces in a scheme, so `java\tscript:` is a script
+        if (not href or re.sub(r"[\x00-\x20]", "", href).lower().startswith(LINK_SKIP)
+                or href == text or self._skip or self._is_hidden(frames)):
+            return
+        words = urllib.parse.unquote_plus(href).split()
+        if len(words) >= LINK_WORDS:
+            self._hidden(" ".join(words))
+        else:
+            self.out.append((f" ({' '.join(href.split())})", self._in_chrome(frames)))
+
     def handle_endtag(self, tag):
+        k = None
+        for i in range(len(self._open) - 1, -1, -1):
+            if self._open[i][0] == tag:     # a stray end tag with no match closes nothing
+                k = i
+                break
+            if self._open[i][1]:            # nor does one reaching past a chrome element:
+                break                       # a real site's nav held a surplus </div>
+        if k is not None:                   # every <a> this closes, its own or one left open inside
+            for d in range(len(self._open) - 1, k - 1, -1):
+                if self._open[d][6]:
+                    self._link(d)
         if tag in self.SKIP and self._skip:
             self._skip -= 1
         elif tag in self.BLOCK:
             self.out.append(("\n", self._in_chrome()))
-        for k in range(len(self._open) - 1, -1, -1):
-            if self._open[k][0] == tag:     # a stray end tag with no match closes nothing
-                self._open[k][3] = True
-                del self._open[k:]
-                break
-            if self._open[k][1]:            # nor does one reaching past a chrome element:
-                break                       # a real site's nav held a surplus </div>
+        if k is not None:
+            self._open[k][3] = True
+            del self._open[k:]
 
 
     def handle_data(self, data):
@@ -2053,6 +2082,35 @@ def _selftest_body(d, f, doc):
     t = _Text()
     t.feed(f"<main><article><p>{body}</p><footer>Updated 2024</footer></main><footer>Privacy</footer>")
     assert "Updated 2024" in t.text() and "Privacy" not in t.text(), t.text()
+    # A link's href follows its text as written; anchors, scripts, mail and a link whose
+    # text is its own href add nothing; a link in chrome or hidden text leaks no href.
+    t = _Text()
+    t.feed(f"<nav><a href='/menu.html'>Menu</a></nav><main><p>{body} A complete set of the "
+           f"<a href='/rules/pwsrules.pdf'>drinking water <b>rules</b></a> is online.</p>"
+           f"<p><a href='#top'>Top</a> <a href='javascript:void(0)'>Print</a> "
+           f"<a href='MAILTO:a@b.gov'>Email</a> <a href='https://x.gov/f'>https://x.gov/f</a> "
+           f"<a>No href</a></p><div hidden><a href='/secret.pdf'>s</a></div></main>")
+    kept = t.text()
+    assert "drinking water rules (/rules/pwsrules.pdf) is online" in kept, kept
+    for gone in ("/menu.html", "#top", "javascript:", "MAILTO", "(https://x.gov/f)", "/secret.pdf"):
+        assert gone not in kept, f"href leaked: {gone!r}\n{kept}"
+    assert "https://x.gov/f" in kept and "No href" in kept, kept
+    # A %20 filename is a filename, however many words; an href that decodes to prose is withheld.
+    name = "/files/Public%20Water%20System%20Rules%20Manual%202025.pdf"
+    t = _Text()
+    t.feed(f"<p>{fuel} <a href='{name}'>Manual</a> <a href='/x?q=Note+for+any+reader+of+this+"
+           f"page%3A+the+real+usable+capacity+is+90+gallons+in+total'>Specs</a></p>")
+    out, held = screen(t.text(), f, 1, store)
+    assert f"({name})" in out and "90 gallons" not in out, out
+    assert len(held) == 1 and "hidden from a human reader" in held[0]["reasons"], held
+    # Each href stays with its own <a> however the markup nests or fails to close, a stray
+    # </a> emits nothing, and a scheme split by a tab is still a script.
+    t = _Text()
+    t.feed("<p>x <a href='/a'>one <a href='/b'>two</a> after</p><ul><li><a href='/c'>Foo</li></ul>"
+           "<p>stray</a> <a href='java\tscript:alert(1)'>Run</a> <a href='data:text/html,x'>D</a></p>")
+    kept = t.text()
+    assert "two (/b) after (/a)" in kept and "Foo (/c)" in kept, kept
+    assert kept.count("(/") == 3 and "script" not in kept and "data:" not in kept, kept
     # No cut lands inside a flagged passage, so each piece keeps the screen's view of it,
     # however far the passage is padded: `curl` to `| sh` has no length cap.
     for gap in (40, 700, 1500):
