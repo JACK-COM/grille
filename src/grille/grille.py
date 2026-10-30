@@ -59,6 +59,7 @@ FILE is a .pdf, .html/.htm, or any text file. `fetch` takes http and https only,
 plain user agent, a size cap and a redirect cap; a redirect off http is refused too.
 """
 import argparse
+import collections
 import contextlib
 import hashlib
 import html.parser
@@ -891,6 +892,44 @@ def page_labels(path, count):
         return {}
 
 
+_PAGE_OF = re.compile(r"\bPage\s+(\d{1,5})\s+of\s+(\d{1,5})\b", re.I)
+EDGE_LINES = 3           # a footer or header sits in a page's first or last three lines
+
+
+def footer_labels(pages):
+    """-> {physical page number: printed number} from a "Page N of M" header or footer,
+    for a PDF whose printed numbers live only in its text (OHA's pwsrules.pdf: physical
+    page 79 prints "Page 76 of 348"). Only where at least half the pages, and three,
+    carry exactly one, nine in ten of those share one M, every N lies in 1..M, and N rises
+    page by page no faster than the pages do. A page whose M differs, or whose edges
+    carry two different footers, stays unlabelled (pwsrules.pdf prints "Page 315 of 349"
+    once among 347 of 348); N falling, repeating or jumping ahead anywhere gives {}
+    rather than a wrong number. Left open: a body line near the edge of a footerless
+    page that quotes the document's own M with an N that fits."""
+    found = {}
+    for i, page in enumerate(pages):
+        lines = [x for x in page.splitlines() if x.strip()]
+        hits = {(n, m) for x in lines[:EDGE_LINES] + lines[-EDGE_LINES:]
+                for n, m in _PAGE_OF.findall(x) if 1 <= int(n) <= int(m)}
+        if len(hits) == 1:
+            found[i + 1] = next(iter(hits))
+    totals = collections.Counter(m for _, m in found.values())
+    total, seen = totals.most_common(1)[0] if totals else (None, 0)
+    if seen < max(3, len(pages) / 2) or seen < 0.9 * len(found):
+        return {}
+    found = {k: v for k, v in found.items() if v[1] == total}
+    seq = [(k, int(n)) for k, (n, _) in sorted(found.items())]
+    if any(not 0 < nb - na <= kb - ka for (ka, na), (kb, nb) in zip(seq, seq[1:])):
+        return {}
+    out = {k: str(int(n)) for k, (n, _) in found.items()}
+    return out if any(v != str(k) for k, v in out.items()) else {}
+
+
+def printed_numbers(path, pages):
+    """The PDF's own page labels where it defines them, else a consistent footer."""
+    return page_labels(path, len(pages)) or footer_labels(pages)
+
+
 def acquire(path):
     """-> (pages: [str], kind, empty: [page numbers with no text layer]). Page numbers are 1-based."""
     p = Path(path)
@@ -1683,7 +1722,7 @@ def cmd_sift(a):
                   f"ranking, which left out "
                   + "; ".join(f"{unit} {n}, the best for \"{x}\"" for x, n in lost)
                   + ": if those are separate questions, ask each on its own (one --ask each)")
-    labels = page_labels(a.file, len(pages)) if kind == "pdf" else {}
+    labels = printed_numbers(a.file, pages) if kind == "pdf" else {}
     if labels:
         print("this PDF prints its own page numbers: each heading gives the printed one, "
               "and #page=N takes the physical one")
@@ -1738,7 +1777,7 @@ def cmd_screen(a):
     unit = "page" if kind == "pdf" else "chunk"
     print(f"# grille screen: {Path(a.file).name}\n")
     total = 0
-    labels = page_labels(a.file, len(pages)) if kind == "pdf" else {}
+    labels = printed_numbers(a.file, pages) if kind == "pdf" else {}
     for i, page in enumerate(pages):
         body, withheld = screen(page.rstrip(), a.file, i + 1, store)
         total += len(withheld)
@@ -2346,6 +2385,21 @@ def _selftest_body(d, f, doc):
                         {0: 0.6, 1: 0.4}, flat) == {1}
     assert _phrase_hits("What is the TBO?", ["TBO 2000"], {0: 0.5}, {}) == set(), "a one-word question has no pair"
     _selftest_labels(d)
+    body = ["Contents", "Preface"] + [f"Rule {k}\nsampling text\n\nOAR 333-061 Page {k} of 4" for k in range(1, 5)]
+    assert footer_labels(body) == {3: "1", 4: "2", 5: "3", 6: "4"}, footer_labels(body)
+    assert footer_labels(body[:3] + ["Rule 2\nno footer"] + body[4:]) == {3: "1", 5: "3", 6: "4"}, \
+        "a page with no footer stays unlabelled"
+    many = ["cover", "contents"] + [f"text\nPage {k} of 20" for k in range(1, 21)]
+    stray = footer_labels(many[:11] + ["text\nPage 10 of 21"] + many[12:])
+    assert len(stray) == 19 and 12 not in stray and stray[13] == "11", f"a stray M: {stray}"
+    assert footer_labels(body[:3] + [body[4], body[3]] + body[5:]) == {}, "numbers that fall back"
+    assert footer_labels(body[:5] + ["Rule 4\nsee Page 9 of 12 of the guide\n\nOAR 333-061 Page 4 of 4"]) \
+        == {3: "1", 4: "2", 5: "3"}, "a page with two footers on its edges stays unlabelled"
+    assert footer_labels(["Page 1 of 3\nx", "Page 2 of 3\ny", "Page 3 of 3\nz"]) == {}, "matching numbers say nothing"
+    assert footer_labels(["a", "b", "c", "x\nPage 1 of 9"]) == {}, "one footer in four is not a pattern"
+    assert footer_labels(body[:3] + ["Rule 2\nPage 3 of 4"] + body[4:]) == {}, "N jumping ahead of the pages"
+    assert footer_labels(body[:2] + ["Rule 1\nPage 0 of 4"] + body[3:]) == {4: "2", 5: "3", 6: "4"}, \
+        "an N outside 1..M is no footer"
     assert _tags([2]) == "question 2" and _tags([1, 2, 3]) == "questions 1, 2 and 3"
     store = store_dir()
     text, withheld = screen(doc, f, 1, store)
