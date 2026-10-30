@@ -77,6 +77,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import zlib
 from pathlib import Path
 
 __version__ = "0.4.1"
@@ -613,6 +614,281 @@ def _chunk_text(text, size=CHUNK_TEXT):
     if cur:
         pages.append(cur)
     return pages
+
+
+# ---------------------------------------------------------------- page labels
+
+# A narrow reader for one thing, the catalog's /PageLabels number tree, because
+# pdftotext counts physical pages and a reader citing a printed page number is off by
+# the front matter. poppler's CLI exposes no labels and Grille takes no PDF library.
+# Every failure yields no labels: an encrypted file, an inflate past the cap, a broken
+# object. Known limits, each failing to no labels or to an older revision's labels:
+# an object whose raw stream holds the bytes "endobj", and a predictor on an ObjStm.
+# A label is page-supplied text printed outside the screen, so only a short run of
+# word characters, spaces and . : / - is ever printed.
+LABEL_SCAN_CAP = 64 << 20        # a larger PDF is read for text only
+LABEL_INFLATE_CAP = 128 << 20    # bytes inflated from object streams, all of them together
+LABEL_NODES = 4096               # number-tree nodes visited at most
+_LABEL_OK = re.compile(r"[\w .:/-]{1,24}")
+_PDF_OBJ = re.compile(rb"(?<![0-9])(\d+)\s+(\d+)\s+obj\b")
+_PDF_ROOT = re.compile(rb"/Root\s+(\d+)\s+\d+\s+R\b")
+_PDF_WS = b" \t\r\n\f\x00"
+_PDF_DELIM = b"()<>[]{}/%"
+_PDF_ESC = {ord("n"): b"\n", ord("r"): b"\r", ord("t"): b"\t", ord("b"): b"\b", ord("f"): b"\f"}
+
+
+def _pdf_tokens(b):
+    """Yields b"<<", b">>", b"[", b"]", ("name", "/Name"), ("str", bytes), or a bare word
+    (a number or keyword) as bytes. Strings nest balanced parentheses and take every
+    escape the PDF reference defines; names decode #xx; comments are skipped."""
+    i, n = 0, len(b)
+    while i < n:
+        c = b[i]
+        if c in _PDF_WS:
+            i += 1
+        elif c == 0x25:                                      # % comment to end of line
+            while i < n and b[i] not in b"\r\n":
+                i += 1
+        elif b.startswith(b"<<", i) or b.startswith(b">>", i):
+            yield b[i:i + 2]
+            i += 2
+        elif c in b"[]":
+            yield bytes([c])
+            i += 1
+        elif c == 0x2F:                                      # /Name
+            j = i + 1
+            while j < n and b[j] not in _PDF_WS and b[j] not in _PDF_DELIM:
+                j += 1
+            raw = re.sub(rb"#([0-9A-Fa-f]{2})", lambda m: bytes([int(m.group(1), 16)]), b[i + 1:j])
+            yield ("name", "/" + raw.decode("latin-1"))
+            i = j
+        elif c == 0x28:                                      # (string)
+            out, depth, i = bytearray(), 1, i + 1
+            while i < n:
+                c = b[i]
+                if c == 0x5C and i + 1 < n:                  # backslash escape
+                    e = b[i + 1]
+                    if e in _PDF_ESC:
+                        out += _PDF_ESC[e]
+                        i += 2
+                    elif 0x30 <= e <= 0x37:                  # \ddd, one to three octal digits
+                        j = i + 1
+                        while j < min(i + 4, n) and 0x30 <= b[j] <= 0x37:
+                            j += 1
+                        out.append(int(b[i + 1:j], 8) & 0xFF)
+                        i = j
+                    elif e in b"\r\n":                       # a line continuation adds nothing
+                        i += 3 if b[i + 1:i + 3] == b"\r\n" else 2
+                    else:
+                        out.append(e)
+                        i += 2
+                    continue
+                if c == 0x28:
+                    depth += 1
+                elif c == 0x29:
+                    depth -= 1
+                    if not depth:
+                        i += 1
+                        break
+                out.append(c)
+                i += 1
+            yield ("str", bytes(out))
+        elif c == 0x3C:                                      # <hex string>
+            j = b.find(b">", i)
+            if j < 0:
+                return
+            h = re.sub(rb"[^0-9A-Fa-f]", b"", b[i + 1:j])
+            yield ("str", bytes.fromhex((h + b"0" * (len(h) % 2)).decode()))
+            i = j + 1
+        else:
+            j = i
+            while j < n and b[j] not in _PDF_WS and b[j] not in _PDF_DELIM:
+                j += 1
+            if j == i:                                       # a stray ) { or }
+                i += 1
+                continue
+            yield b[i:j]
+            i = j
+
+
+def _pdf_value(t, i, depth=0):
+    """-> (value, next index): dict, list, name as str, string as bytes, int or float, a
+    reference as ("ref", number), or None."""
+    if i >= len(t) or depth > 64:
+        return None, len(t)
+    x = t[i]
+    if x == b"<<":
+        d, i = {}, i + 1
+        while i < len(t) and t[i] != b">>":
+            if isinstance(t[i], tuple) and t[i][0] == "name":
+                key = t[i][1]
+                d[key], i = _pdf_value(t, i + 1, depth + 1)
+            else:
+                i += 1
+        return d, i + 1
+    if x == b"[":
+        out, i = [], i + 1
+        while i < len(t) and t[i] != b"]":
+            if t[i] == b">>":
+                i += 1
+                continue
+            v, i = _pdf_value(t, i, depth + 1)
+            out.append(v)
+        return out, i + 1
+    if x in (b">>", b"]"):            # a missing value: leave the closer to its container
+        return None, i
+    if isinstance(x, tuple):
+        return x[1], i + 1
+    if x.isdigit() and i + 2 < len(t) and isinstance(t[i + 1], bytes) and t[i + 1].isdigit() and t[i + 2] == b"R":
+        return ("ref", int(x)), i + 3
+    try:
+        return (float(x) if b"." in x else int(x)), i + 1
+    except ValueError:
+        return None, i + 1
+
+
+def _pdf_parse(body):
+    """The first value in an object body, read up to its stream keyword, if any."""
+    toks = []
+    for tok in _pdf_tokens(body or b""):
+        if tok == b"stream" or len(toks) > 200_000:
+            break
+        toks.append(tok)
+    return _pdf_value(toks, 0)[0] if toks else None
+
+
+def _pdf_objects(data):
+    """-> {object number: body}. Where a number is defined twice, the definition later in
+    the file wins, an object packed in a stream taking its stream's position, because an
+    incremental update appends. None when the object streams inflate past the cap."""
+    found, streams = {}, []
+
+    def put(num, pos, body):
+        if num not in found or pos >= found[num][0]:
+            found[num] = (pos, body)
+
+    for m in _PDF_OBJ.finditer(data):
+        end = data.find(b"endobj", m.end())
+        if end > 0:
+            body = data[m.end():end]
+            put(int(m.group(1)), m.start(), body)
+            if b"/ObjStm" in body[:1024]:
+                streams.append((m.start(), body))
+    budget = LABEL_INFLATE_CAP
+    for pos, body in streams:
+        meta = _pdf_parse(body)
+        if (not isinstance(meta, dict) or meta.get("/Type") != "/ObjStm" or meta.get("/DecodeParms")
+                or meta.get("/Filter") not in ("/FlateDecode", ["/FlateDecode"])):
+            continue
+        inflate = zlib.decompressobj()
+        try:
+            packed = inflate.decompress(re.split(rb"stream\r?\n", body, maxsplit=1)[-1], budget)
+        except zlib.error:
+            continue
+        if inflate.unconsumed_tail:
+            return None
+        budget -= len(packed)
+        try:
+            first, n = int(meta["/First"]), int(meta["/N"])
+            nums = list(map(int, packed[:first].split()))[:2 * n]
+        except (KeyError, ValueError, TypeError):
+            continue
+        pairs = sorted(zip(nums[::2], nums[1::2]), key=lambda p: p[1])
+        for k, (num, off) in enumerate(pairs):
+            stop = pairs[k + 1][1] if k + 1 < len(pairs) else len(packed) - first
+            put(num, pos, packed[first + off:first + stop])
+    return {k: body for k, (_, body) in found.items()}
+
+
+def _roman(n):
+    out = ""
+    for v, r in ((1000, "m"), (900, "cm"), (500, "d"), (400, "cd"), (100, "c"), (90, "xc"),
+                 (50, "l"), (40, "xl"), (10, "x"), (9, "ix"), (5, "v"), (4, "iv"), (1, "i")):
+        while n >= v:
+            out, n = out + r, n - v
+    return out
+
+
+def _label(style, n):
+    """The numeral for page n in a /PageLabels style, "" for none, or None where n is out
+    of the style's range: roman past 3999, letters past eight repeats."""
+    if style in ("/R", "/r"):
+        return None if not 1 <= n <= 3999 else _roman(n).upper() if style == "/R" else _roman(n)
+    if style in ("/A", "/a"):        # A..Z, then AA..ZZ, per the PDF reference
+        if not 1 <= n <= 26 * 8:
+            return None
+        c = chr(ord("A") + (n - 1) % 26) * ((n - 1) // 26 + 1)
+        return c if style == "/A" else c.lower()
+    return str(n) if style == "/D" else ""
+
+
+def _pdf_text(b):
+    if b[:2] in (b"\xfe\xff", b"\xff\xfe"):
+        return b.decode("utf-16", "replace")
+    if b[:3] == b"\xef\xbb\xbf":
+        return b[3:].decode("utf-8", "replace")
+    return b.decode("latin-1")
+
+
+def page_labels(path, count):
+    """-> {physical page number: printed label} for the `count` pages pdftotext read, or {}
+    when the PDF defines no labels, they match the physical numbers, or anything fails."""
+    try:
+        p = Path(path)
+        if p.stat().st_size > LABEL_SCAN_CAP:
+            return {}
+        data = p.read_bytes()
+        if re.search(rb"/Encrypt[\s/<]", data):     # its strings would read as noise
+            return {}
+        objs = _pdf_objects(data)
+        if not objs:
+            return {}
+        roots = _PDF_ROOT.findall(data)
+        cat = _pdf_parse(objs.get(int(roots[-1]))) if roots else None
+        if not isinstance(cat, dict):
+            cat = next((d for b in objs.values() if re.search(rb"/Type\s*/Catalog\b", b[:4096])
+                        for d in [_pdf_parse(b)] if isinstance(d, dict)), None)
+        if not isinstance(cat, dict) or "/PageLabels" not in cat:
+            return {}
+
+        def deref(v):
+            return _pdf_parse(objs.get(v[1])) if isinstance(v, tuple) else v
+
+        ranges, todo, seen, visits = [], [cat["/PageLabels"]], set(), 0
+        while todo and visits < LABEL_NODES:          # the number tree: /Nums leaves under /Kids
+            v, visits = todo.pop(), visits + 1
+            if isinstance(v, tuple):
+                if v[1] in seen:
+                    continue
+                seen.add(v[1])
+                v = deref(v)
+            if not isinstance(v, dict):
+                continue
+            nums = deref(v.get("/Nums"))
+            if isinstance(nums, list):
+                ranges += [(nums[k], deref(nums[k + 1])) for k in range(0, len(nums) - 1, 2)
+                           if isinstance(nums[k], int) and nums[k] >= 0]
+            kids = deref(v.get("/Kids"))
+            if isinstance(kids, list):
+                todo += kids
+        ranges.sort(key=lambda r: r[0])
+        out = {}
+        for k, (start, spec) in enumerate(ranges):
+            spec = spec if isinstance(spec, dict) else {}
+            first = spec.get("/St", 1)
+            if not isinstance(first, int) or not 1 <= first <= 1_000_000:
+                continue
+            prefix = spec.get("/P", b"")
+            prefix = _pdf_text(prefix) if isinstance(prefix, bytes) else ""
+            stop = ranges[k + 1][0] if k + 1 < len(ranges) else count
+            for i in range(start, min(stop, count)):
+                num = _label(spec.get("/S"), first + i - start)
+                lab = None if num is None else prefix + num
+                if lab and _LABEL_OK.fullmatch(lab):
+                    out[i + 1] = lab
+        return out if any(v != str(k) for k, v in out.items()) else {}
+    except Exception:       # a label is a convenience; no PDF may fail a sift over it
+        return {}
 
 
 def acquire(path):
@@ -1407,6 +1683,10 @@ def cmd_sift(a):
                   f"ranking, which left out "
                   + "; ".join(f"{unit} {n}, the best for \"{x}\"" for x, n in lost)
                   + ": if those are separate questions, ask each on its own (one --ask each)")
+    labels = page_labels(a.file, len(pages)) if kind == "pdf" else {}
+    if labels:
+        print("this PDF prints its own page numbers: each heading gives the printed one, "
+              "and #page=N takes the physical one")
     if empty:
         print(f"no text layer on {unit}s {', '.join(map(str, empty))}"
               + (" (rendered below)" if a.render else " (pass --render to get them as PNGs)"))
@@ -1437,7 +1717,8 @@ def cmd_sift(a):
         extra = (f", instructs-agent {scores[n]:.2f}" if n in scores
                  else ", unscored" if a.score else "")
         which = f", {_tags(asks[n])}" if many else ""
-        print(f"\n## {unit} {n} (score {s:.2f}{which}{extra})\n")
+        printed = f"printed {labels[n]}, " if n in labels else ""
+        print(f"\n## {unit} {n} ({printed}score {s:.2f}{which}{extra})\n")
         print(body)
     if a.render and empty:
         paths, err = render_pages(a.file, empty, store)
@@ -1457,10 +1738,12 @@ def cmd_screen(a):
     unit = "page" if kind == "pdf" else "chunk"
     print(f"# grille screen: {Path(a.file).name}\n")
     total = 0
+    labels = page_labels(a.file, len(pages)) if kind == "pdf" else {}
     for i, page in enumerate(pages):
         body, withheld = screen(page.rstrip(), a.file, i + 1, store)
         total += len(withheld)
-        print(f"\n## {unit} {i + 1}\n\n{body}")
+        printed = f" (printed {labels[i + 1]})" if i + 1 in labels else ""
+        print(f"\n## {unit} {i + 1}{printed}\n\n{body}")
     print(f"\n---\n{total} span{'s' if total != 1 else ''} withheld; store {store}", file=sys.stderr)
 
 
@@ -2062,6 +2345,7 @@ def _selftest_body(d, f, doc):
     assert _phrase_hits("pitch trim", ["Infobox: Mooney M20", "The pitch trim moves the tail."],
                         {0: 0.6, 1: 0.4}, flat) == {1}
     assert _phrase_hits("What is the TBO?", ["TBO 2000"], {0: 0.5}, {}) == set(), "a one-word question has no pair"
+    _selftest_labels(d)
     assert _tags([2]) == "question 2" and _tags([1, 2, 3]) == "questions 1, 2 and 3"
     store = store_dir()
     text, withheld = screen(doc, f, 1, store)
@@ -2363,6 +2647,75 @@ def _tiny_pdf(text):
     out += b"".join(b"%010d 00000 n \n" % off for off in offsets)
     out += b"trailer\n<< /Size %d /Root 1 0 R >>\nstartxref\n%d\n%%%%EOF\n" % (len(objs) + 1, xref)
     return bytes(out)
+
+
+def _labelled_pdf(packed):
+    """Three pages labelled i, ii, 1: the /PageLabels tree in a plain catalog, or packed
+    with the catalog in a Flate object stream as Acrobat writes it."""
+    labels = b"<< /Nums [0 << /S /r >> 2 << /S /D /St 1 >>] >>"
+    kids = b"[3 0 R 4 0 R 5 0 R]"
+    page = b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 100] >>"
+    catalog = b"<< /Type /Catalog /Pages 2 0 R /PageLabels 7 0 R >>"
+    objs = {2: b"<< /Type /Pages /Kids " + kids + b" /Count 3 >>", 3: page, 4: page, 5: page}
+    if packed:
+        body = b"1 0 7 %d " % (len(catalog) + 1)
+        data = catalog + b" " + labels
+        raw = zlib.compress(body + data)
+        objs[6] = (b"<< /Type /ObjStm /N 2 /First %d /Filter /FlateDecode /Length %d >>\nstream\n"
+                   % (len(body), len(raw)) + raw + b"\nendstream")
+    else:
+        objs[1], objs[7] = catalog, labels
+    return _raw_pdf(objs)
+
+
+def _raw_pdf(objs, tail=b""):
+    """Objects in the order given, then a trailer naming object 1 as the root: enough for
+    page_labels, which never reads the xref."""
+    out = bytearray(b"%PDF-1.5\n")
+    for n, body in (objs.items() if isinstance(objs, dict) else objs):
+        out += b"%d 0 obj\n" % n + body + b"\nendobj\n"
+    return bytes(out + b"trailer\n<< /Root 1 0 R" + tail + b" >>\n%%EOF\n")
+
+
+def _selftest_labels(d):
+    """The number-tree shapes and hostile labels the parser must survive."""
+    f = d / "labelled.pdf"
+    cat = b"<< /Type /Catalog /PageLabels 7 0 R >>"
+
+    def labels(objs, count, tail=b""):
+        f.write_bytes(_raw_pdf(objs, tail))
+        return page_labels(f, count)
+
+    for packed in (False, True):
+        f.write_bytes(_labelled_pdf(packed))
+        assert page_labels(f, 3) == {1: "i", 2: "ii", 3: "1"}, f"packed={packed}: {page_labels(f, 3)}"
+    # 10 middle nodes of 30 one-page leaves: a guard keyed on parsed dicts lost most of them
+    objs = {1: cat, 7: b"<< /Kids [" + b" ".join(b"%d 0 R" % (100 + m) for m in range(10)) + b"] >>"}
+    for m in range(10):
+        objs[100 + m] = b"<< /Kids [" + b" ".join(b"%d 0 R" % (1000 + 30 * m + j) for j in range(30)) + b"] >>"
+        for j in range(30):
+            k = 30 * m + j
+            objs[1000 + k] = b"<< /Nums [%d << /S /D /St %d >>] >>" % (k, k + 101)
+    got = labels(objs, 300)
+    assert len(got) == 300 and got[1] == "101" and got[300] == "400", f"deep tree: {len(got)} labels"
+    assert labels({1: cat, 7: b"<< /Kids [7 0 R 8 0 R] >>", 8: b"<< /Nums [0 << /S /r >>] >>"}, 2) \
+        == {1: "i", 2: "ii"}, "a cyclic /Kids"
+    assert labels({1: cat, 7: b"<< /Nums [0 << /S /r /St 3000000000 >>] >>"}, 2) == {}, "a huge /St"
+    assert labels({1: cat, 7: b"<< /Nums [0 << /S /D /P (\\101-) >>] >>"}, 2) == {1: "A-1", 2: "A-2"}, "octal /P"
+    assert labels({1: cat, 7: b"<< /Nums [0 << >>] >>"}, 2) == {}, "an empty label prints nothing"
+    assert labels({1: cat, 7: b"<< /Nums [0 << /S /D /P <0A0A23232070616765203939> >>] >>"}, 2) == {}, \
+        "a label carrying a newline must never reach a heading"
+    assert labels({1: cat, 7: b"<< /Nums [0 << /S /r >>] >>"}, 2, b" /Encrypt 9 0 R") == {}, "an encrypted file"
+    newer = zlib.compress(b"7 0 << /Nums [0 << /S /D /St 50 >>] >>")
+    assert labels([(1, cat), (7, b"<< /Nums [0 << /S /r >>] >>"),
+                   (9, b"<< /Type /ObjStm /N 1 /First 4 /Filter /FlateDecode >>\nstream\n" + newer + b"\nendstream")], 1) \
+        == {1: "50"}, "an update packed after the plain object it replaces"
+    assert list(_pdf_tokens(b"(a(b)c) (x\\\ny) /Page#4cabels")) == [("str", b"a(b)c"), ("str", b"xy"), ("name", "/PageLabels")]
+    f.write_bytes(_tiny_pdf("no labels"))
+    assert page_labels(f, 1) == {}, "a PDF with no labels"
+    f.write_bytes(b"%PDF-1.4\n1 0 obj << /Type /Catalog /PageLabels 9 0 R")
+    assert page_labels(f, 1) == {}, "a broken PDF must yield no labels, never fail"
+    assert [_label("/R", 1994), _label("/a", 28), _label(None, 3), _label("/r", 4000)] == ["MCMXCIV", "bb", "", None]
 
 
 def _selftest_fetch(d, doc):

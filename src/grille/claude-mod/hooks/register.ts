@@ -1,8 +1,11 @@
 import type { Register } from 'claude-code'
 
-// --decipher measured up to 77 s on a live page; grille's own bound is 30 s per
-// redirect hop plus the relay and its fallback, so this leaves headroom.
-const TIMEOUT_MS = 180_000
+// --decipher measured up to 77 s on a live page, and 200 s once when the relay
+// timed out and its fallback answered; grille's own bound is 30 s per redirect
+// hop, 120 s for the relay and 120 s for its fallback, so this covers a fetch
+// with no redirect, not every one. Whether the host caps a tool call below this
+// is unknown.
+const TIMEOUT_MS = 240_000
 
 // grille's own error lines, the only stderr passed to the model: a fetch
 // failure quotes the server's reason phrase and final URL, which a hostile
