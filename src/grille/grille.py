@@ -80,7 +80,7 @@ import urllib.request
 import zlib
 from pathlib import Path
 
-__version__ = "0.4.1"
+__version__ = "0.5.0"
 HERE = Path(__file__).resolve().parent
 
 try:                    # the embedder ladder: a panoply-lib copy, imported as a package member
