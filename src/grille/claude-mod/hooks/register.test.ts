@@ -57,7 +57,7 @@ test('a WebFetch is answered by grille fetch --decipher, never by the tool', asy
 
   const ran = await $.tool.call(CALL)
 
-  expect(seen.argv.slice(1)).toEqual(['fetch', '--decipher', `--ask=${CALL.prompt}`, '--', CALL.url])
+  expect(seen.argv.slice(1)).toEqual(['fetch', '--decipher', '--split', `--ask=${CALL.prompt}`, '--', CALL.url])
   expect(seen.argv[0]?.endsWith('/../grille.py')).toBe(true)
   expect(seen.timeoutMs).toBeGreaterThan(77_000)
   expect(ran.result?.result).toContain('Vs0: 52 KCAS')

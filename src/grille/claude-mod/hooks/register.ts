@@ -56,8 +56,10 @@ export const register: Register = on => {
     try {
       // `--ask=` and `--` keep a prompt or URL that starts with a dash from
       // being read as a flag (a URL of `--help` otherwise prints usage, exit 0).
+      // `--split` asks each part of a compound prompt on its own: one ranking
+      // for a five-part prompt left three topics' best chunks out.
       ran = await $.process.run(
-        [grille, 'fetch', '--decipher', `--ask=${e.prompt}`, '--', e.url],
+        [grille, 'fetch', '--decipher', '--split', `--ask=${e.prompt}`, '--', e.url],
         { timeoutMs: TIMEOUT_MS, ...(session && { env: { GRILLE_SESSION: session } }) },
       )
     } catch {

@@ -62,7 +62,7 @@ A new scorer withholds nothing until `grille calibrate` has measured its thresho
 
 ## Optional. Route Claude Code's WebFetch through Grille (the user's choice)
 
-Grille ships a Claude Code mod in `claude-mod/` beside `grille.py`. Loaded, it answers every WebFetch call with `grille fetch --decipher`, so a page is screened before any model reads it. Permission rules for WebFetch still bind, and any Grille failure refuses the call instead of falling back to the unscreened fetch. It needs the relay from Step 3, and it covers WebFetch only: curl, MCP fetch tools and a browser are not screened.
+Grille ships a Claude Code mod in `claude-mod/` beside `grille.py`. Loaded, it answers every WebFetch call with `grille fetch --decipher --split`, so a page is screened before any model reads it. Permission rules for WebFetch still bind, and any Grille failure refuses the call instead of falling back to the unscreened fetch. It needs the relay from Step 3, and it covers WebFetch only: curl, MCP fetch tools and a browser are not screened.
 
 Ask the user first, because every fetch becomes slower (seconds to a minute) and `--decipher` sends screened page text to the relay. To load it in every session, add the folder to the `env` block of `~/.claude/settings.json`:
 
