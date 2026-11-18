@@ -92,7 +92,7 @@ def _home():
 def _manifest():
     """grille.json as a dict; {} when absent or unreadable, which `grille check` reports."""
     try:
-        m = json.loads((_home() / "grille.json").read_text())
+        m = json.loads((_home() / "grille.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return m if isinstance(m, dict) else {}
@@ -103,7 +103,7 @@ def _write_manifest(m):
     home.mkdir(parents=True, exist_ok=True)
     path = home / "grille.json"
     tmp = path.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(m, indent=2) + "\n")
+    tmp.write_text(json.dumps(m, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
     return path
 

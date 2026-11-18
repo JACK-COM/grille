@@ -7,11 +7,15 @@ import subprocess
 import sys
 from pathlib import Path
 
+import _guard as guard
+
 from . import chunk
 from . import htmltext
 
 
 EMPTY_PAGE = 20          # fewer stripped chars than this and the page has no text layer
+
+TOOL_TIMEOUT = 60       # seconds pdftotext or pdftoppm may run on one file or page
 
 
 def acquire(path):
@@ -23,12 +27,17 @@ def acquire(path):
     if suffix == ".pdf":
         if not shutil.which("pdftotext"):
             sys.exit("grille: pdftotext not found; brew install poppler")
-        r = subprocess.run(["pdftotext", "-layout", str(p), "-"], capture_output=True, text=True)
+        try:
+            # a hostile PDF can hold pdftotext for as long as it likes: bounded, and UTF-8 whatever the locale
+            r = subprocess.run(["pdftotext", "-layout", "-enc", "UTF-8", str(p), "-"], capture_output=True,
+                               text=True, encoding="utf-8", errors="replace", timeout=TOOL_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            sys.exit(f"grille: pdftotext ran past {TOOL_TIMEOUT}s on {p}")
         if r.returncode:
             how = (f"killed by signal {-r.returncode}" if r.returncode < 0
                    else f"exit {r.returncode}")
             sys.exit(f"grille: pdftotext failed on {p} ({how}): "
-                     f"{r.stderr.strip()[:200] or 'no stderr; a sandbox killing it looks like this'}")
+                     f"{guard.relay(r.stderr.strip(), 200) or 'no stderr; a sandbox killing it looks like this'}")
         # -layout pads columns with spaces to the page width; 40% of the bytes on a
         # typical manual page. Three spaces keep a table readable, the rest are cut.
         pages = [re.sub(r"[ \t]{4,}", "   ", pg).replace(" \n", "\n") for pg in r.stdout.split("\f")]
@@ -51,8 +60,12 @@ def render_pages(pdf, numbers, store):
         return paths, "pdftoppm not found; brew install poppler"
     for n in numbers:
         prefix = store / f"{Path(pdf).stem}-p{n}"
-        r = subprocess.run(["pdftoppm", "-png", "-r", "110", "-f", str(n), "-l", str(n),
-                            "-singlefile", str(pdf), str(prefix)], capture_output=True, text=True)
+        try:
+            r = subprocess.run(["pdftoppm", "-png", "-r", "110", "-f", str(n), "-l", str(n),
+                                "-singlefile", str(pdf), str(prefix)], capture_output=True, timeout=TOOL_TIMEOUT)
+        except subprocess.TimeoutExpired:
+            failed.append(n)
+            continue
         if r.returncode == 0:
             paths.append(str(prefix) + ".png")
         else:

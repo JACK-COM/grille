@@ -118,7 +118,7 @@ def relay(questions, sifted, cfg):
         argv = [x.replace("{system}", RELAY_SYSTEM) for x in fb]
         who = Path(fb[0]).name
         try:
-            r = subprocess.run(argv, input=msg, capture_output=True, text=True, timeout=config.RELAY_TIMEOUT)
+            r = subprocess.run(argv, input=msg, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=config.RELAY_TIMEOUT)
             if r.returncode == 0 and r.stdout.strip():
                 return r.stdout.strip(), who
             errs.append(f"{guard.relay(who, 60)}: exit {r.returncode} {guard.relay(r.stderr.strip(), 120)}")

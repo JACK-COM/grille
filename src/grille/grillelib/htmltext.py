@@ -33,6 +33,18 @@ LINK_WORDS = 12          # an href decoding to this many words is prose; a %20 f
 # screen still reads that by content. The sr-only pattern (a 1px box clipped to nothing)
 # is caught too, though a screen reader voices it: text a sighted reader never sees is
 # where a planted line lives, and withholding a "Skip to content" costs one line.
+_TERMINAL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+
+
+def printable(text):
+    """`text` as it may reach a terminal: every control but newline and tab, and every bidi
+    override, a space. An escape sequence in a page would otherwise retitle, clear or
+    conceal on the reader's terminal."""
+    return _TERMINAL.sub(" ", text)
+
+
+STYLE_CAP = 2000
+DEPTH_CAP = 256          # open elements tracked; deeper nesting is read as text, its tags ignored
 _HIDING_STYLE = re.compile(
     r"display:none|opacity:0(?:\.0+)?(?:;|$)"
     r"|font-size:0+(?:\.0+)?(?:px|pt|em|rem|%)?(?:;|$)|font-size:(?:0?\.\d+|1)(?:px|pt)"
@@ -58,7 +70,8 @@ def _hides(attrs):
     tab = (a.get("role") or "").strip().lower() == "tabpanel"
     if "hidden" in a and not (tab and (a["hidden"] or "").strip().lower() != "until-found"):
         return "hard"
-    style = re.sub(r"\s+", "", (a.get("style") or "").lower()).replace("!important", "")
+    # a style attribute is short; a 180 KB one is a page making the patterns below slow
+    style = re.sub(r"\s+", "", (a.get("style") or "")[:STYLE_CAP].lower()).replace("!important", "")
     if _HIDING_STYLE.search(style.replace("display:none", "") if tab else style):
         return "hard"
     fg = re.search(r"(?:^|;)color:([^;]+)", style)
@@ -112,6 +125,10 @@ class _Text(html.parser.HTMLParser):
         return f[3] and not any(c[3] for c in f[5])
 
     def handle_starttag(self, tag, attrs):
+        if len(self._open) >= DEPTH_CAP:
+            # every event walks the open elements, so unclosed tags made a page quadratic:
+            # 80 KB of `<i>a` took 17 s. Past the cap, tags shape nothing.
+            return
         if tag not in self.VOID:            # never closed, so never pushed
             if tag == "main":
                 for f in self._open:

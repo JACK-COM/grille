@@ -2,6 +2,7 @@
 pipe to a shell, invisible characters; one reason per pattern a passage matches.
 """
 import re
+import unicodedata
 
 from . import htmltext
 
@@ -74,10 +75,40 @@ BLOCK_CAP = 320          # a blank-line block longer than this is screened line 
 BLOCK_LINES = 4          # or with this many lines, whatever its length: a list withholds its bad item
 
 
+SCAN_CAP = 8192          # characters matched at once; a longer chunk is matched in overlapping pieces
+
+# Lookalikes folded to the Latin letter they pass for, so "Іgnоrе" (Cyrillic І, о, е) reads
+# as "Ignore". Bounded to the Cyrillic and Greek letters that are drawn like Latin ones.
+_CONFUSABLE = str.maketrans(
+    "АВЕКМНОРСТХІЈЅаеорсухіјѕԁԛԝΑΒΕΖΗΙΚΜΝΟΡΤΥΧαεικνορτυχ",
+    "ABEKMHOPCTXIJSaeopcyxijsdqwABEZHIKMNOPTYXaeiknoptux")
+_FILLERS = re.compile("[\u115f\u1160\u3164\uffa0\u180e]")
+
+
+def skeleton(text):
+    """What a pattern matches: NFKD (full-width and styled letters to plain), invisible and
+    filler characters gone, a combining mark dropped only where it rides an ASCII letter
+    (so Indic, Thai and Arabic text keeps its own), lookalikes folded to Latin. Matching
+    only: nothing printed is ever the skeleton."""
+    out = []
+    for ch in unicodedata.normalize("NFKD", _FILLERS.sub("", text)):
+        if unicodedata.category(ch) == "Mn" and out and out[-1].isascii():
+            continue
+        out.append(ch)
+    return unicodedata.normalize("NFC", "".join(out)).translate(_CONFUSABLE)
+
+
 def reasons_for(chunk):
-    """Every pattern that fires on the chunk. The text patterns run on a copy with the
-    invisible characters removed, so a zero-width space inside "ignore" hides nothing."""
-    visible = _STRIP_INVISIBLE.sub("", chunk)
+    """Every pattern that fires on the chunk. The text patterns run on its skeleton, with
+    the invisible characters removed, so a zero-width space inside "ignore", a full-width
+    "ｉｇｎｏｒｅ" or a Cyrillic "іgnоrе" hides nothing. A chunk past SCAN_CAP is matched in
+    overlapping pieces: one pattern scanning a 200 KB line from every start took 29 s."""
+    if len(chunk) > SCAN_CAP:
+        out = []
+        for at in range(0, len(chunk), SCAN_CAP - 1024):
+            out += [r for r in reasons_for(chunk[at:at + SCAN_CAP]) if r not in out]
+        return out
+    visible = skeleton(_STRIP_INVISIBLE.sub("", chunk))
     out = []
     for name, rx in PATTERNS:
         if rx.search(chunk if name == "hidden characters" else visible):

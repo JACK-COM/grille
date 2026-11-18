@@ -43,8 +43,8 @@ def screen(text, source, page_no, store):
 
 def hold(span, reasons, source, page_no, store):
     """Write a span to the store by id -> (placeholder line, {id, reasons, lines})."""
-    wid = hashlib.sha1(f"{source}|{page_no}|{span}".encode()).hexdigest()[:8]
-    (store / f"{wid}.json").write_text(json.dumps({
+    wid = hashlib.sha1(f"{source}|{page_no}|{span}".encode()).hexdigest()[:12]
+    (store / f"{wid}.json").write_text(encoding="utf-8", data=json.dumps({
         "id": wid, "source": str(source), "page": page_no,
         "reasons": reasons, "text": span}, indent=1))
     n = span.count("\n") + 1

@@ -9,6 +9,7 @@ import sys
 from pathlib import Path
 from typing import List, NamedTuple, Optional, Tuple
 
+from . import htmltext
 from .chunk import CHUNK_TEXT  # noqa: F401  (kept beside the other sizes a reader looks for)
 from .documents import acquire, render_pages
 from .pdf import printed_numbers
@@ -48,7 +49,9 @@ class SiftResult(NamedTuple):
 
 
 def sift(file: str, questions: List[str], store: Path, *, pages: int = PAGES_DEFAULT, split: bool = False,
-         score: bool = False, render: bool = False) -> SiftResult:
+         score: bool = False, render: bool = False, strict: bool = False) -> SiftResult:
+    """`strict` (fetch --decipher): a page the scorer could not score is withheld, as one it
+    flagged is, since a second model reads whatever passes."""
     doc, kind, empty = acquire(file)
     notes: List[str] = []
     if split:
@@ -96,8 +99,10 @@ def sift(file: str, questions: List[str], store: Path, *, pages: int = PAGES_DEF
         scores, threshold, score_note = score_pages([(p.n, p.body) for p in screened])
         for k, p in enumerate(screened):
             v = scores.get(p.n)
-            if threshold is not None and v is not None and v >= threshold:
-                line, held_whole = hold(p.body, [f"scorer instructs-agent {v:.2f}"], file, p.n, store)
+            unread = strict and threshold is not None and v is None
+            if threshold is not None and ((v is not None and v >= threshold) or unread):
+                why = "the scorer did not answer" if unread else f"scorer instructs-agent {v:.2f}"
+                line, held_whole = hold(p.body, [why], file, p.n, store)
                 screened[k] = p._replace(body=line, scored=v)
                 withheld += 1
                 whole.append((p.n, held_whole["id"]))
@@ -148,7 +153,7 @@ def tail(r: SiftResult) -> str:
 
 
 def render(r: SiftResult) -> str:
-    return "\n".join(x for x in (head(r), body(r), tail(r)) if x)
+    return htmltext.printable("\n".join(x for x in (head(r), body(r), tail(r)) if x))
 
 
 def footer(r: SiftResult) -> str:
@@ -180,5 +185,5 @@ def decipher(r: SiftResult, cfg: dict, file: str) -> Tuple[str, int]:
 
 
 def emit(text: str, r: SiftResult) -> None:
-    print(text)
+    print(htmltext.printable(text))
     print(footer(r), file=sys.stderr)

@@ -17,7 +17,7 @@ class UninstallTest(GrilleCase):
         """Dry run, a kept venv, then the last piece."""
         d = self.d
         h, bin_ = d / "uh", d / "ubin"
-        venv, store = h / ".panoply/venv", d / "utmp/grille"
+        venv, store = h / ".panoply/venv", d / f"utmp/grille-{os.getuid()}"
         for x in (venv, store / "s1", bin_, h / ".grille"):
             x.mkdir(parents=True, exist_ok=True)
         (bin_ / "locket").write_text("#!/bin/sh\n")

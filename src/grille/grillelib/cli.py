@@ -28,7 +28,7 @@ def cmd_selftest(a):
     with tempfile.TemporaryDirectory(prefix="grille-selftest-") as t, \
             embed.settings(_ACTIVE=("ollama", embed.MODEL), OLLAMA="http://127.0.0.1:1", AUTOSTART=False):
         d = Path(t)
-        (d / "page.html").write_text(page)
+        (d / "page.html").write_text(page, encoding="utf-8")
         order, method = rank.rank("What is the engine's time between overhaul?", doc)
         html_pages = documents.acquire(d / "page.html")[0]
         text, withheld = screen.screen("\n\n".join(doc), d / "manual.txt", 1, d)
@@ -157,7 +157,7 @@ Every window of every page is one scorer call, and the count is printed before t
     u.set_defaults(fn=admin.cmd_uninstall)
     h = sub.add_parser("help", help="print a guide")
     h.add_argument("topic", choices=["install"])
-    h.set_defaults(fn=lambda a: print((help_text.HERE / "INSTALL-grille.md").read_text(), end="") or 0)
+    h.set_defaults(fn=lambda a: print((help_text.HERE / "INSTALL-grille.md").read_text(encoding="utf-8"), end="") or 0)
     a = p.parse_args(argv)
     a.argv = list(sys.argv[1:] if argv is None else argv)   # the line a person is asked to run
     if not a.cmd:

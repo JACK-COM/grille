@@ -12,9 +12,18 @@ CHUNK_TEXT = 1800        # page size for a document with no pages of its own
 _CUTS = ("},", "],", ". ", "; ", ", ", " ")   # where an over-long line prefers to break, in order
 
 
+LINE_CAP = 8192           # characters scanned as one line; a longer one is scanned in pieces
+
+
 def _flag_spans(line):
     """Where each screen pattern matches in the line, as (start, end) in the line's own
     indices; the text patterns run on the invisible-stripped copy and map back."""
+    if len(line) > LINE_CAP:
+        # pieces overlap by a pattern's longest reach, so a match straddling a cut is seen whole
+        step, spans = LINE_CAP - 600, []
+        for at in range(0, len(line), step):
+            spans += [(a + at, b + at) for a, b in _flag_spans(line[at:at + LINE_CAP])]
+        return _merge(spans)
     keep = [i for i, ch in enumerate(line) if not patterns._STRIP_INVISIBLE.match(ch)]
     visible = "".join(line[i] for i in keep)
     spans = []
@@ -23,6 +32,10 @@ def _flag_spans(line):
             spans += [m.span() for m in rx.finditer(line)]
         else:
             spans += [(keep[m.start()], keep[m.end() - 1] + 1) for m in rx.finditer(visible) if m.end() > m.start()]
+    return _merge(spans)
+
+
+def _merge(spans):
     merged = []                 # overlapping matches are one passage: no cut lands between them
     for a, b in sorted(spans):
         if merged and a < merged[-1][1]:

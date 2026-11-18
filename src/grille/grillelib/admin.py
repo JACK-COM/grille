@@ -325,7 +325,7 @@ def cmd_calibrate(a):
     """Score labelled pages with the configured scorer and suggest the threshold that
     withholds every labelled injection, naming what that costs in clean pages withheld."""
     try:
-        spec = json.loads(Path(a.items).read_text())
+        spec = json.loads(Path(a.items).read_text(encoding="utf-8"))
         items = spec["items"] if isinstance(spec, dict) else spec
         rows = [(str(it["id"]), it["text"], it["labels"]["instructs_agent"]) for it in items]
     except (OSError, ValueError, KeyError, TypeError) as e:

@@ -72,7 +72,7 @@ def score_text(cmd, text, subject=None):
         if subject:
             req["subject"] = subject
         try:
-            r = subprocess.run(cmd, input=json.dumps(req), capture_output=True, text=True, timeout=config.SCORE_TIMEOUT)
+            r = subprocess.run(cmd, input=json.dumps(req), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=config.SCORE_TIMEOUT)
         except FileNotFoundError:
             raise ScorerError(f"{cmd[0]} not found on PATH")
         except (OSError, subprocess.TimeoutExpired) as e:

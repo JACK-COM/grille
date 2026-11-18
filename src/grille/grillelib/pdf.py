@@ -22,9 +22,11 @@ LABEL_INFLATE_CAP = 128 << 20    # bytes inflated from object streams, all of th
 
 
 LABEL_NODES = 4096               # number-tree nodes visited at most
+OBJECT_CAP = 500_000             # object headers read at most; a real PDF of 1,500 pages has ~30k
 
 
-_LABEL_OK = re.compile(r"[\w .:/-]{1,24}")
+# a printed page number: a word and a number at most ("A-12", "iv", "Index 3"), never a sentence
+_LABEL_OK = re.compile(r"\w{1,10}(?:[ .:/-]\w{1,10})?")
 
 
 _PDF_OBJ = re.compile(rb"(?<![0-9])(\d+)\s+(\d+)\s+obj\b")
@@ -172,9 +174,21 @@ def _pdf_objects(data):
         if num not in found or pos >= found[num][0]:
             found[num] = (pos, body)
 
+    # One pass each over the object headers and the `endobj`s. A body ends at its `endobj`
+    # or the next header, whichever comes first, so bodies never overlap: finding `endobj`
+    # from each header, as before, copied overlapping bodies (41 KB of headers took 84 MB).
+    import bisect
+    heads = []
     for m in _PDF_OBJ.finditer(data):
-        end = data.find(b"endobj", m.end())
-        if end > 0:
+        heads.append(m)
+        if len(heads) > OBJECT_CAP:
+            return None
+    ends = [m.start() for m in re.finditer(rb"endobj", data)]
+    for k, m in enumerate(heads):
+        nxt = heads[k + 1].start() if k + 1 < len(heads) else len(data)
+        e = bisect.bisect_left(ends, m.end())
+        end = min(ends[e] if e < len(ends) else nxt, nxt)
+        if end > m.end():
             body = data[m.end():end]
             put(int(m.group(1)), m.start(), body)
             if b"/ObjStm" in body[:1024]:
