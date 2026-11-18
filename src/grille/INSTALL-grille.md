@@ -35,30 +35,32 @@ $(brew --prefix python@3.14)/bin/python3.14 -m venv ~/.panoply/venv
 
 The model, about 314 MB, downloads into the venv on first use. A venv made for `fastembed` already holds both packages.
 
-`PANOPLY_VENV` names another location for every piece at once; `grille configure embedder --venv PATH` names one for Grille alone, in Grille's section of `~/.panoply/config.json`.
+`PANOPLY_VENV` names another location for every piece at once; `grille configure embedder --venv PATH` names one for Grille alone, in Grille's section of `~/.panoply/config.json`. That command runs the venv's packages inside Grille, so the user runs it in their own terminal and types `yes`.
+
+Whatever runs a program, sends text off this machine or sends a key is written only when a person at a terminal types `yes`: a scorer, a relay fallback or a hosted relay, an embedder host off this machine, a venv, turning ollama autostart on, a scorer threshold, `calibrate --write`. Run by you, such a command writes nothing and prints the line; hand that line to the user.
 
 ## Step 3. The relay for --decipher (the user's choice)
 
 `--decipher` needs a chat model, and Grille ships without one, because no default fits every machine. Until the user chooses, every Grille command prints a one-line reminder. Ask the user which of these they want:
 
-- **A local server they already run** (ollama, LM Studio, llama.cpp, vLLM). Run `grille configure relay --detect`, which lists the servers answering on their usual ports with their models and prints the line to set each one. Offer the user that list.
-- **A hosted API.** `grille configure relay --url https://HOST/v1 --model NAME --api-key-env VAR`, with the key exported as `VAR` in the user's shell profile. Never write the key into `grille.json`. A hosted model sees the screened page text.
+- **A local server they already run** (ollama, LM Studio, llama.cpp, vLLM). Run `grille configure relay --detect`, which lists the servers answering on their usual ports with their models and prints the line to set each one. Offer the user that list; a server on this machine with no key and no fallback you may set yourself.
+- **A hosted API.** The user runs `grille configure relay --url https://HOST/v1 --model NAME --api-key-env VAR` in their own terminal and types `yes`, with the key exported as `VAR` in their shell profile. The key goes only to that host, over https. Never write the key into `grille.json`. A hosted model sees the screened page text.
 - **None.** `grille configure relay --off` turns `--decipher` off and ends the reminder.
 
-A command can stand behind the model, or alone: `--fallback "COMMAND"` runs it with the prompt on stdin and reads the answer from stdout, with `{system}` in any argument replaced by the system prompt. Keep that command's tools off, because it reads untrusted page text.
+A command can stand behind the model, or alone: `--fallback "COMMAND"`, which the user sets in their own terminal, runs it with the prompt on stdin and reads the answer from stdout, with `{system}` in any argument replaced by the system prompt. Keep that command's tools off, because it reads untrusted page text.
 
 ## Step 4. The scorer for --score
 
-`--score` asks a scorer whether each returned page tries to steer an automated reader, and withholds a page at or above the scorer's threshold. The default scorer is Augur (`brew install jack-com/panoply/augur`), whose threshold was measured and ships with Grille. Without Augur, `--score` marks each page unscored and the pattern screen still runs.
+`--score` asks a scorer whether each returned page tries to steer an automated reader, and withholds a page at or above the scorer's threshold. The default scorer is Augur (`brew install jack-com/panoply/augur`), whose threshold was measured and ships with Grille. Without Augur, `--score` marks each page unscored and the pattern screen still runs, and `fetch --decipher` withholds every page, since nothing cleared them.
 
-Any command can stand in for Augur if it reads one JSON request on stdin (`questions`, `text`, `subject`) and prints `{"answers": {"instructs_agent": {"noul": P}}}` with P from 0 to 1:
+Any command can stand in for Augur if it reads one JSON request on stdin (`questions`, `text`, `subject`) and prints `{"answers": {"instructs_agent": {"noul": P}}}` with P from 0 to 1. The user runs both lines in their own terminal, typing `yes` to each:
 
 ```
 grille configure score --command "my-scorer --json"
 grille calibrate pages.json --write
 ```
 
-A new scorer withholds nothing until `grille calibrate` has measured its threshold on labelled pages the user actually reads (`grille calibrate -h` shows the file). A threshold never transfers from one scorer to another.
+A new scorer has no threshold until `grille calibrate` has measured one on labelled pages the user actually reads (`grille calibrate -h` shows the file); until then `--score` marks pages unscored and `fetch --decipher` withholds every page. A threshold never transfers from one scorer to another.
 
 ## Optional. Route Claude Code's WebFetch through Grille (the user's choice)
 
