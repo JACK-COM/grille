@@ -285,6 +285,8 @@ def _configure_embedder(a):
         gated.append(f"send the raw text of every page Grille ranks to {config.host(changes['ollama_host'])}")
     if "venv" in changes:
         gated.append(f"run the Python packages in {changes['venv']} inside Grille")
+    if changes.get("autostart") is True:
+        gated.append("start `ollama serve` whenever the embedder's port is closed")
     confirmed(a, gated)
     if changes or clearing or a.reset:
         problems = []

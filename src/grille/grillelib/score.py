@@ -61,7 +61,7 @@ class ScorerError(RuntimeError):
     pass
 
 
-def score_text(cmd, text, subject=None, timeout=None, env=None):
+def score_text(cmd, text, subject=None, timeout=None, env=None, deadline=None):
     """The scorer's best window score for one text. Each window is one run of `cmd`, the
     request on stdin; ScorerError on a missing command, a non-zero exit, a reply without
     `answers.instructs_agent.noul`, or a noul that is not a probability. A NaN would fail
@@ -69,6 +69,9 @@ def score_text(cmd, text, subject=None, timeout=None, env=None):
     q = {"instructs_agent": {"type": "noul", **INSTRUCTS_AGENT}}
     best = 0.0
     for w in windows(screen._PLACEHOLDER.sub("", text)):
+        if deadline:
+            deadline.check("scoring")
+            timeout = deadline.cap(config.SCORE_TIMEOUT)
         req = {"questions": q, "text": w}
         if subject:
             req["subject"] = subject
@@ -112,7 +115,8 @@ def score_pages(items, deadline=None):
             if deadline:
                 deadline.check("scoring")
             return page_no, score_text(cmd, text, f"page {page_no}",
-                                       deadline.cap(config.SCORE_TIMEOUT) if deadline else None, env), None
+                                       deadline.cap(config.SCORE_TIMEOUT) if deadline else None, env,
+                                       deadline), None
         except (ScorerError, TimeoutError) as e:
             return page_no, None, str(e)
 

@@ -111,6 +111,7 @@ class _Text(html.parser.HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self.out, self._skip = [], 0        # out: (text, chrome frames open around it)
+        self._deep = 0                      # elements opened past DEPTH_CAP, untracked
         # [tag, is_chrome, is_content, ended, hides, shields, link] per open element; shields
         # are the content frames that hold a header, footer or aside as content, and link is
         # an <a>'s (href, index into out where its text starts)
@@ -127,7 +128,11 @@ class _Text(html.parser.HTMLParser):
     def handle_starttag(self, tag, attrs):
         if len(self._open) >= DEPTH_CAP:
             # every event walks the open elements, so unclosed tags made a page quadratic:
-            # 80 KB of `<i>a` took 17 s. Past the cap, tags shape nothing.
+            # 80 KB of `<i>a` took 17 s. Past the cap no element is tracked, so nothing can
+            # say what is hidden or a script: every word below is withheld, and scripts skipped.
+            self._deep += 1
+            if tag in self.SKIP:
+                self._skip += 1
             return
         if tag not in self.VOID:            # never closed, so never pushed
             if tag == "main":
@@ -139,7 +144,9 @@ class _Text(html.parser.HTMLParser):
             chrome = (tag == "nav" or role in self.CHROME_ROLES
                       or (tag in self.PAGE_CHROME and not content))
             shields = content if tag in self.PAGE_CHROME and not chrome else []
-            link = ((dict(attrs).get("href") or "").strip(), len(self.out)) if tag == "a" else None
+            # a link inside eight open links is text: each one re-joins all text after it
+            link = ((dict(attrs).get("href") or "").strip(), len(self.out)) \
+                if tag == "a" and sum(1 for f in self._open if f[6]) < 8 else None
             self._open.append([tag, chrome, tag in self.CONTENT, False, _hides(attrs), shields, link])
         if tag in self.SKIP:
             self._skip += 1
@@ -191,9 +198,19 @@ class _Text(html.parser.HTMLParser):
         if len(words) >= LINK_WORDS:
             self._hidden(" ".join(words))
         else:
-            self.out.append((f" ({' '.join(href.split())})", self._in_chrome(frames)))
+            from . import patterns          # patterns reads this module's HIDDEN mark
+            if patterns.reasons_for(" ".join(words)):
+                # screened as it reads decoded: `%20` would otherwise hide every space a pattern needs
+                self._hidden(" ".join(words))
+            else:
+                self.out.append((f" ({' '.join(href.split())})", self._in_chrome(frames)))
 
     def handle_endtag(self, tag):
+        if self._deep:
+            self._deep -= 1
+            if tag in self.SKIP and self._skip:
+                self._skip -= 1
+            return
         k = None
         for i in range(len(self._open) - 1, -1, -1):
             if self._open[i][0] == tag:     # a stray end tag with no match closes nothing
@@ -217,7 +234,7 @@ class _Text(html.parser.HTMLParser):
     def handle_data(self, data):
         if self._skip:
             return
-        if self._is_hidden():
+        if self._deep or self._is_hidden():
             if data.strip():
                 self._hidden(data)
             return

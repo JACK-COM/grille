@@ -1,6 +1,7 @@
 """Chunking text into pages: a long line cut where it breaks least, and never inside a span
 the screen must see whole.
 """
+import bisect
 import re
 
 from . import patterns
@@ -56,7 +57,8 @@ def _cut_at(line, size, spans):
 
     def inside(at):             # _split_long strips the head, so a match ending in `\s` needs more
         kept = len(line[:at].rstrip())
-        return next(((a, b) for a, b in spans if a < at and kept < b), None)
+        # the first span ending after `kept` is the only one that can hold the cut
+        return spans.holding(at, kept)
     lo = size // 2
     for c in _CUTS:
         i = line.rfind(c, lo, size)
@@ -74,6 +76,22 @@ def _cut_at(line, size, spans):
     return min(at, len(line))
 
 
+class _Spans:
+    """`found` (merged, so sorted by start and end alike) and its ends, seen from `base`:
+    shifted on read and never copied per cut, which kept a line of thousands of matches
+    quadratic."""
+
+    def __init__(self, found, ends, base):
+        self.found, self.ends, self.base = found, ends, base
+
+    def holding(self, at, kept):
+        """The span a cut at `at` (whose head keeps `kept` characters) would split, or None."""
+        k = bisect.bisect_right(self.ends, kept + self.base)
+        if k < len(self.found) and self.found[k][0] - self.base < at:
+            return (self.found[k][0] - self.base, self.found[k][1] - self.base)
+        return None
+
+
 def _split_long(para, size):
     """An over-long paragraph in pieces of about `size`: whole lines where it has them,
     and a line longer than that (minified JSON, one 60 KB line from the Federal Register
@@ -82,12 +100,13 @@ def _split_long(para, size):
     for line in para.split("\n"):
         # scanned once per line and shifted as the line is consumed: a rescan per cut is
         # quadratic, 0.47 s against 0.007 s on a 60 KB line
-        spans = _flag_spans(line) if len(line) > size else []
+        found = _flag_spans(line) if len(line) > size else []
+        ends = [b for _, b in found]
+        base = 0                        # where `line` now starts in the original line
         while len(line) > size:
-            at = _cut_at(line, size, spans)
+            at = _cut_at(line, size, _Spans(found, ends, base))
             head, rest = line[:at].rstrip(), line[at:].lstrip()
-            shift = len(line) - len(rest)
-            spans = [(a - shift, b - shift) for a, b in spans if b > shift]
+            base += len(line) - len(rest)
             line = rest
             if cur:
                 pieces.append(cur)

@@ -17,7 +17,9 @@ from . import pdf
 
 # A line the page starts with `[grille` would pass for Grille's own placeholder: the scorer
 # strips those before scoring, and a reader takes them for Grille's word.
-_FRAMING = re.compile(r"(?im)^(\s*)\[(?=\s*grille\b)")
+_INVISIBLE_LEAD = "[\\s\u200b-\u200f\u2060-\u2064\ufeff\u00ad\u180e]*"
+_FRAMING = re.compile(r"(?i)()\[(?=[\s\u200b-\u200f\u2060-\u2064\ufeff]*grille\b)")
+_POSE = re.compile(r"(?im)^(" + _INVISIBLE_LEAD + r")(?=##\s|---\s*$|(?:page|chunk)\s+\d+\s+was ranked)")
 EMPTY_PAGE = 20          # fewer stripped chars than this and the page has no text layer
 
 TOOL_TIMEOUT = 60       # seconds pdftotext or pdftoppm may run on one file or page
@@ -117,7 +119,7 @@ def acquire(path):
         sys.exit(f"grille: no such file: {p}")
     fmt = of_file(p)
     pages, empty = fmt.read(p)
-    return [_FRAMING.sub(r"\1[the page writes: ", pg) for pg in pages], fmt.kind, empty
+    return [_POSE.sub(r"\1(the page writes) ", _FRAMING.sub(r"[the page writes: ", pg)) for pg in pages], fmt.kind, empty
 
 
 def render_pages(pdf, numbers, store):

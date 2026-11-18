@@ -61,8 +61,13 @@ def rank_each(questions, pages, deadline=None):
             wait = deadline.cap(embed.TIMEOUT) if deadline else embed.TIMEOUT
             if deadline:
                 deadline.check("ranking")
-            with embed.settings(TIMEOUT=wait):
-                vecs = embed.embed(list(questions) + docs, quiet=True, cache=cache)
+            texts, vecs = list(questions) + docs, []
+            for at in range(0, len(texts), 256):    # the deadline between slices, not once
+                if deadline:
+                    deadline.check("ranking")
+                    wait = deadline.cap(embed.TIMEOUT)
+                with embed.settings(TIMEOUT=wait):
+                    vecs += embed.embed(texts[at:at + 256], quiet=True, cache=cache)
         finally:
             if cache:
                 cache.close()

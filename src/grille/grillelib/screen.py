@@ -15,6 +15,12 @@ def screen(text, source, page_no, store):
     rarely fits one line and the neighbour is usually its continuation."""
     parts = patterns._units(text)
     hit = [bool(p.strip()) and not re.fullmatch(r"\n\s*\n", p) and bool(patterns.reasons_for(p)) for p in parts]
+    # a pattern broken across a line break matches on neither line: each line is matched
+    # joined to the next as well, so `ignore all previous<br>instructions` is seen whole
+    for k in range(0, len(parts) - 2):
+        if parts[k + 1] == "\n" and parts[k].strip() and parts[k + 2].strip() and not (hit[k] or hit[k + 2]) \
+                and patterns.reasons_for(parts[k].rstrip() + " " + parts[k + 2].lstrip()):
+            hit[k] = hit[k + 2] = True
     # neighbours of a hit inside a line-split block: parts separated by a bare "\n"
     take = list(hit)
     for k, h in enumerate(hit):

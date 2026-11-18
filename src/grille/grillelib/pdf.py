@@ -4,6 +4,8 @@ a consistent Page N of M header or footer.
 import collections
 import re
 import zlib
+
+from . import patterns
 from pathlib import Path
 
 
@@ -199,6 +201,8 @@ def _pdf_objects(data):
         if (not isinstance(meta, dict) or meta.get("/Type") != "/ObjStm" or meta.get("/DecodeParms")
                 or meta.get("/Filter") not in ("/FlateDecode", ["/FlateDecode"])):
             continue
+        if budget <= 0:
+            return None                 # spent: decompress(x, 0) would inflate without a limit
         inflate = zlib.decompressobj()
         try:
             packed = inflate.decompress(re.split(rb"stream\r?\n", body, maxsplit=1)[-1], budget)
@@ -315,7 +319,7 @@ def page_labels(path, count):
             for i in range(start, min(stop, count)):
                 num = _label(spec.get("/S"), first + i - start)
                 lab = None if num is None else prefix + num
-                if lab and _LABEL_OK.fullmatch(lab):
+                if lab and _LABEL_OK.fullmatch(lab) and not patterns.reasons_for(lab):
                     out[i + 1] = lab
         return out if any(v != str(k) for k, v in out.items()) else {}
     except Exception:       # a label is a convenience; no PDF may fail a sift over it

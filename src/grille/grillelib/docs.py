@@ -125,6 +125,10 @@ def server_text(s, what):
 def cmd_verify(a):
     rows = [net.verify(u) for u in a.url]
     if a.json:
+        for r in rows:
+            for k, what in (("final", "address"), ("type", "type"), ("error", "error")):
+                if r.get(k):
+                    r[k] = server_text(r[k], what)
         print(json.dumps(rows, indent=1))
     else:
         for r in rows:
