@@ -8,7 +8,7 @@ which `grille --help` prints; each job has its own module in grillelib/.
 import sys
 from pathlib import Path
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:      # grillelib and the panoply-lib copies, installed flat or not;
     sys.path.append(str(HERE))     # appended, so a caller's own modules keep their names
