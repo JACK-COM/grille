@@ -1,6 +1,7 @@
 """Ranking pages against a question: by meaning through the embedder, by word overlap when
 none answers, and exact phrases lifted.
 """
+import http.client
 import re
 
 import _embed as embed
@@ -80,7 +81,8 @@ def rank_each(questions, pages, deadline=None):
                     best[i] = s
             bests.append(best)
         method = f"embedding ({embed.resolve_backend()[1]})"
-    except (RuntimeError, OSError, TimeoutError) as e:  # no embedder, or no time left: degrade, and say so
+    except (RuntimeError, OSError, TimeoutError, ValueError, TypeError, KeyError, http.client.HTTPException) as e:
+        # no embedder, a reply that is not one, or no time left: degrade, and say so
         bests = [{i: _overlap(q, p) for i, p in enumerate(pages) if p.strip()} for q in questions]
         method = f"word overlap (no embedder: {str(e).splitlines()[0][:80]})"
     flat = {}

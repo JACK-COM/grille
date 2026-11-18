@@ -12,6 +12,7 @@ import _guard as guard
 
 from . import chunk
 from . import htmltext
+from . import patterns
 from . import pdf
 
 
@@ -19,7 +20,22 @@ from . import pdf
 # strips those before scoring, and a reader takes them for Grille's word.
 _INVISIBLE_LEAD = "[\\s\u200b-\u200f\u2060-\u2064\ufeff\u00ad\u180e]*"
 _FRAMING = re.compile(r"(?i)()\[(?=[\s\u200b-\u200f\u2060-\u2064\ufeff]*grille\b)")
-_POSE = re.compile(r"(?im)^(" + _INVISIBLE_LEAD + r")(?=##\s|---\s*$|(?:page|chunk)\s+\d+\s+was ranked)")
+def _unpose(page):
+    """The page with every line that could pass for Grille's own marked as the page's: a
+    bracketed `grille` read through the screen's skeleton (so `[gr\u0456lle` and a soft
+    hyphen count), and a heading, header or status line Grille prints, after controls are
+    made spaces (`\x01## chunk 7` printed as ` ## chunk 7`)."""
+    page = htmltext.printable(page)
+    out, at = [], 0
+    for m in re.finditer(r"\[", page):
+        if patterns.skeleton(page[m.end():m.end() + 16]).lower().lstrip(" \u00ad\ufe0f\ufe0e").startswith("grille"):
+            out.append(page[at:m.start()] + "[the page writes: ")
+            at = m.end()
+    page = "".join(out) + page[at:]
+    return _POSE.sub(r"\1(the page writes) ", page)
+
+
+_POSE = re.compile(r"(?im)^(" + _INVISIBLE_LEAD + r")(?=#{1,2}\s|---\s*$|(?:page|chunk)\s+\d+\s+was ranked|question(?:\s+\d+)?:|score:|relayed by\b|relay failed\b)")
 EMPTY_PAGE = 20          # fewer stripped chars than this and the page has no text layer
 
 TOOL_TIMEOUT = 60       # seconds pdftotext or pdftoppm may run on one file or page
@@ -119,7 +135,7 @@ def acquire(path):
         sys.exit(f"grille: no such file: {p}")
     fmt = of_file(p)
     pages, empty = fmt.read(p)
-    return [_POSE.sub(r"\1(the page writes) ", _FRAMING.sub(r"[the page writes: ", pg)) for pg in pages], fmt.kind, empty
+    return [_unpose(pg) for pg in pages], fmt.kind, empty
 
 
 def render_pages(pdf, numbers, store):

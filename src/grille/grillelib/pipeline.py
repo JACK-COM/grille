@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import List, NamedTuple, Optional, Tuple
 
 from . import htmltext
+from . import patterns
 from .chunk import CHUNK_TEXT  # noqa: F401  (kept beside the other sizes a reader looks for)
 from . import documents
 from .documents import acquire, render_pages
@@ -126,7 +127,8 @@ def head(r: SiftResult) -> str:
                  + (", the questions taking turns" if many else ""))
     lines += r.notes
     if r.score_note:
-        lines.append(f"score: {r.score_note}")
+        why = patterns.reasons_for(r.score_note)
+        lines.append(f"score: {'[a scorer message withheld: ' + '; '.join(why) + ']' if why else r.score_note}")
     return "\n".join(lines)
 
 
@@ -175,6 +177,9 @@ def decipher(r: SiftResult, cfg: dict, file: str, deadline=None) -> Tuple[str, i
         out.append(f"\n{who}: NOT FOUND in the screened pages; `grille sift {file} --ask ...` shows them")
         return "\n".join(out), 0
     kept, dropped = verbatim(answer, pages)
+    # the relay can stitch lines of several screened units into one; a kept line is screened again
+    flagged = [k for k in kept if patterns.reasons_for(k)]
+    kept, dropped = [k for k in kept if k not in flagged], dropped + flagged
     out.append(f"relayed by {who}; {len(kept)} line{'s' if len(kept) != 1 else ''} verified verbatim "
                f"against the screened pages\n")
     out.append("\n".join(kept) if kept else "nothing verbatim came back")

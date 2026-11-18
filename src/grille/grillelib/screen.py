@@ -8,6 +8,9 @@ import re
 from . import patterns
 
 
+JOIN_UNITS = 8           # consecutive units matched together: one word per line still reads as one
+
+
 def screen(text, source, page_no, store):
     """-> (screened_text, withheld: [{id, reasons, lines}]). A unit carrying a match is
     replaced by one placeholder line and written to the store by id. In a line-split
@@ -15,12 +18,19 @@ def screen(text, source, page_no, store):
     rarely fits one line and the neighbour is usually its continuation."""
     parts = patterns._units(text)
     hit = [bool(p.strip()) and not re.fullmatch(r"\n\s*\n", p) and bool(patterns.reasons_for(p)) for p in parts]
-    # a pattern broken across a line break matches on neither line: each line is matched
-    # joined to the next as well, so `ignore all previous<br>instructions` is seen whole
-    for k in range(0, len(parts) - 2):
-        if parts[k + 1] == "\n" and parts[k].strip() and parts[k + 2].strip() and not (hit[k] or hit[k + 2]) \
-                and patterns.reasons_for(parts[k].rstrip() + " " + parts[k + 2].lstrip()):
-            hit[k] = hit[k + 2] = True
+    # a pattern broken across lines or blocks matches on no single unit: each run of up to
+    # JOIN_UNITS consecutive units is matched joined as well, so `ignore all previous</p><p>
+    # instructions`, or one word per line, is seen whole and the run withheld
+    content = [k for k, p in enumerate(parts) if p.strip() and not re.fullmatch(r"\n\s*\n", p) and p != "\n"]
+    for i in range(len(content)):
+        for n in range(2, JOIN_UNITS + 1):
+            run = content[i:i + n]
+            if len(run) < n or any(hit[k] for k in run):
+                break
+            if patterns.reasons_for(" ".join(parts[k].strip() for k in run)):
+                for k in run:
+                    hit[k] = True
+                break
     # neighbours of a hit inside a line-split block: parts separated by a bare "\n"
     take = list(hit)
     for k, h in enumerate(hit):
@@ -49,8 +59,8 @@ def screen(text, source, page_no, store):
 
 def hold(span, reasons, source, page_no, store):
     """Write a span to the store by id -> (placeholder line, {id, reasons, lines})."""
-    wid = hashlib.sha1(f"{source}|{page_no}|{span}".encode()).hexdigest()[:12]
-    (store / f"{wid}.json").write_text(encoding="utf-8", data=json.dumps({
+    wid = hashlib.sha1(f"{source}|{page_no}|{span}".encode("utf-8", "surrogatepass")).hexdigest()[:12]
+    (store / f"{wid}.json").write_text(encoding="utf-8", errors="surrogatepass", data=json.dumps({
         "id": wid, "source": str(source), "page": page_no,
         "reasons": reasons, "text": span}, indent=1))
     n = span.count("\n") + 1

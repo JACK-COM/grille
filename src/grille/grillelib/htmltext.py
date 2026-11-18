@@ -43,6 +43,17 @@ def printable(text):
     return _TERMINAL.sub(" ", text)
 
 
+class _Run:
+    """A block of hidden lines, kept as a list while the page is parsed: re-joining the block
+    for each hidden element made a page of `<span hidden>a</span>` quadratic."""
+
+    def __init__(self, lines):
+        self.lines = lines
+
+    def __str__(self):
+        return "\n\n" + "\n".join(self.lines) + "\n\n"
+
+
 STYLE_CAP = 2000
 DEPTH_CAP = 256          # open elements tracked; deeper nesting is read as text, its tags ignored
 _HIDING_STYLE = re.compile(
@@ -158,13 +169,14 @@ class _Text(html.parser.HTMLParser):
         whatever it says: a planted line that avoids every pattern is still hidden."""
         # every piece carries the mark: one long hidden line cut by _split_long would
         # otherwise leave its tail unmarked beside ordinary prose
-        lines = [piece for ln in text.strip().splitlines()
+        lines = [HIDDEN + piece for ln in text.strip().splitlines()
                  for piece in (textwrap.wrap(ln, HIDDEN_WRAP) or [""])]
-        body = "\n".join(HIDDEN + ln for ln in lines)
         chrome = self._in_chrome()
-        if self.out and self.out[-1][1] == chrome and self.out[-1][0].startswith("\n\n" + HIDDEN):
-            body = self.out.pop()[0].strip("\n") + "\n" + body      # one hidden run, one block
-        self.out.append(("\n\n" + body + "\n\n", chrome))
+        last = self.out[-1] if self.out else None
+        if last is not None and last[1] == chrome and isinstance(last[0], _Run):
+            last[0].lines += lines              # one hidden run, one block: extended, not rebuilt
+        else:
+            self.out.append((_Run(lines), chrome))
 
     def _is_hidden(self, frames=None):
         """Whether text here is hidden: a hard hider anywhere above, or the nearest
@@ -189,7 +201,7 @@ class _Text(html.parser.HTMLParser):
         never sees an href, so one that decodes to prose is withheld like a hidden comment."""
         frames = self._open[:d + 1]         # the link's own chrome and hiding, not its children's
         href, start = frames[-1][6]
-        text = " ".join("".join(t for t, _ in self.out[start:]).split())
+        text = " ".join("".join(str(t) for t, _ in self.out[start:]).split())
         # browsers drop control characters and spaces in a scheme, so `java\tscript:` is a script
         if (not href or re.sub(r"[\x00-\x20]", "", href).lower().startswith(LINK_SKIP)
                 or href == text or self._skip or self._is_hidden(frames)):
@@ -243,7 +255,7 @@ class _Text(html.parser.HTMLParser):
     def text(self, chrome=False):
         """The page's text without its chrome, or with it when asked. A page whose text is
         nearly all chrome is returned whole rather than empty."""
-        body = "".join(t for t, fs in self.out if chrome or not any(self._held(f) for f in fs))
+        body = "".join(str(t) for t, fs in self.out if chrome or not any(self._held(f) for f in fs))
         if not chrome and len(body.strip()) < APP_SHELL:
             return self.text(chrome=True)
         return body
