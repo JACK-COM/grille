@@ -22,6 +22,7 @@ import _settings as panoply
 
 from . import config
 from . import help_text
+from . import relay
 from .commands_base import Verb
 from . import net
 from . import score
@@ -225,7 +226,7 @@ def cmd_configure(a):
             confirmed(a, relay_gates(r, old))
             if r.get("api_key_env") and r.get("url"):
                 r["key_host"] = config.host(r["url"])
-            if a.url and (a.api or "openai") == "openai":
+            if a.url and relay.APIS[a.api or "openai"].lists_models:
                 listed = _models_at(a.url)
                 if listed is None:
                     print(f"warning: nothing answered at {a.url}/models; saved anyway")
@@ -370,7 +371,7 @@ def _configure_args(g):
     g.add_argument("--url", help="relay: server base URL")
     g.add_argument("--model", help="relay: model name; embedder: the ollama embedding model, as `ollama list` "
                    "names it, or `default` to remove the setting")
-    g.add_argument("--api", choices=["openai", "ollama"], help="relay: request format (default openai)")
+    g.add_argument("--api", choices=sorted(relay.APIS), help="relay: request format (default openai)")
     g.add_argument("--api-key-env", metavar="VAR", help="relay: environment variable holding a bearer key")
     g.add_argument("--think", action="store_true", help="relay, ollama API: send think, for a reasoning model")
     g.add_argument("--fallback", metavar="COMMAND", help="relay: command tried when the model fails; prompt on "

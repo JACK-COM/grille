@@ -9,6 +9,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+from typing import Callable, NamedTuple
 
 import _guard as guard
 import _web as web
@@ -46,13 +47,40 @@ _LOOKALIKE = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d
 RELAY_CAP = 1 << 20      # a relay reply past this is a runaway, not an answer
 
 
+class RelayAPI(NamedTuple):
+    """A chat request format, declared once: a new one is one entry in APIS."""
+    path: str                                       # appended to the configured url
+    body: Callable[[dict, list], dict]              # (relay settings, messages) -> request body
+    answer: Callable[[dict], str]                   # reply -> its text; KeyError and the like when it is not one
+    lists_models: bool = False                      # GET <url>/models names what it serves
+
+
+def _ollama_body(cfg, messages):
+    body = {"model": cfg["model"], "stream": False, "options": {"temperature": 0}, "messages": messages}
+    if cfg.get("think"):
+        # a reasoning model drafts inside `content` and repeats itself with think off;
+        # on, the drafting goes to `thinking`, which is never read
+        body["think"] = True
+    return body
+
+
+APIS = {
+    "openai": RelayAPI("/chat/completions",
+                       lambda cfg, messages: {"model": cfg["model"], "stream": False, "temperature": 0,
+                                              "messages": messages},
+                       lambda reply: reply["choices"][0]["message"].get("content") or "", lists_models=True),
+    "ollama": RelayAPI("/api/chat", _ollama_body, lambda reply: reply["message"].get("content") or ""),
+}
+
+
 def _relay_model(cfg, msg, deadline=None):
     """One call to the configured chat model -> its text. Raises ValueError, OSError,
     TimeoutError or URLError with a readable reason. The key goes only to the host a person
     confirmed it for (`key_host`), over https off this machine, and no redirect is followed."""
     api = cfg.get("api") or "openai"
-    if api not in ("openai", "ollama"):
-        raise ValueError(f"relay.api {api!r} is neither openai nor ollama")
+    if api not in APIS:
+        raise ValueError(f"relay.api {guard.relay(api, 40)!r} is not one of {', '.join(APIS)}")
+    fmt = APIS[api]
     headers = {"Content-Type": "application/json"}
     if cfg.get("api_key_env"):
         key = os.environ.get(cfg["api_key_env"])
@@ -66,18 +94,8 @@ def _relay_model(cfg, msg, deadline=None):
             raise ValueError("the relay key would cross the network readable: its url is not https")
         headers["Authorization"] = f"Bearer {key}"
     messages = [{"role": "system", "content": RELAY_SYSTEM}, {"role": "user", "content": msg}]
-    base = cfg["url"].rstrip("/")
-    if api == "ollama":
-        body = {"model": cfg["model"], "stream": False, "options": {"temperature": 0}, "messages": messages}
-        if cfg.get("think"):
-            # a reasoning model drafts inside `content` and repeats itself with think off;
-            # on, the drafting goes to `thinking`, which is never read
-            body["think"] = True
-        url = base + "/api/chat"
-    else:
-        body = {"model": cfg["model"], "stream": False, "temperature": 0, "messages": messages}
-        url = base + "/chat/completions"
-    req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
+    url = cfg["url"].rstrip("/") + fmt.path
+    req = urllib.request.Request(url, data=json.dumps(fmt.body(cfg, messages)).encode(), headers=headers)
     deadline = deadline or web.Deadline(config.RELAY_TIMEOUT)
     with web.open_url(req, config.RELAY_TIMEOUT, deadline=deadline, follow=None) as r:
         raw = web.read(r, RELAY_CAP, deadline)
@@ -86,8 +104,7 @@ def _relay_model(cfg, msg, deadline=None):
     except RecursionError:
         raise ValueError("reply nests too deep to read") from None
     try:
-        m = reply["message"] if api == "ollama" else reply["choices"][0]["message"]
-        return (m.get("content") or "").strip()
+        return fmt.answer(reply).strip()
     except (KeyError, IndexError, TypeError, AttributeError):
         raise ValueError(f"reply is not a {api} chat response: {guard.relay(raw[:80], 100)}")
 
