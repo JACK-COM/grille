@@ -12,9 +12,10 @@ const TIMEOUT_MS = 240_000
 // server writes.
 const GRILLE_LINE = /^grille: [a-z][a-z ,-]*/
 
-// decipher() exits 0 when the relay dies and hands back the sifted pages
-// whole: screened, but never deciphered, so the mod refuses it.
-const RELAY_FAILED = /^relay failed \(/m
+// grille fetch --decipher exits 5 when no relay answered and hands back the
+// sifted pages whole: screened, but never deciphered, so the mod refuses it.
+// By exit code, never by the text: a page can print anything.
+const RELAY_FAILED = 5
 
 const refuse = (url: string, why: string) => ({
   deny: `grille refused ${url}; WebFetch is routed through grille and has no unscreened fallback. ${why}`,
@@ -36,6 +37,10 @@ export const register: Register = on => {
     // whose small-model summary no one sees.
     const verdict = await $.tool.check({ tool: 'WebFetch', input: { url: e.url, prompt: e.prompt } })
     if (verdict.decision === 'deny') return { deny: verdict.reason ?? `WebFetch to ${e.url} is denied by a permission rule.` }
+    // Only a verdict this mod knows proceeds: one the host adds later refuses until read.
+    if (verdict.decision !== 'allow' && verdict.decision !== 'ask') {
+      return refuse(e.url, `The permission check answered ${String(verdict.decision)}, which this mod does not act on.`)
+    }
     if (verdict.decision === 'ask') {
       // A declined prompt comes back as an error result, not a deny, so any
       // error refuses: grille runs only on a fetch core actually let through.
@@ -69,11 +74,13 @@ export const register: Register = on => {
       return refuse(e.url, 'grille could not run or ran past its time limit.')
     }
 
+    if (ran.exitCode === RELAY_FAILED) {
+      return refuse(e.url, 'The relay failed, so the page was screened but not deciphered; run `grille fetch` by hand to read it.')
+    }
     if (ran.exitCode !== 0) {
       const line = ran.stderr.trim().split('\n').find(l => GRILLE_LINE.test(l))
       return refuse(e.url, line ? (line.match(GRILLE_LINE)?.[0] ?? '').trim() : `grille exited ${ran.exitCode}.`)
     }
-    if (RELAY_FAILED.test(ran.stdout)) return refuse(e.url, 'The relay failed, so the page was screened but not deciphered; run `grille fetch` by hand to read it.')
     if (!ran.stdout.trim() || ran.isStdoutTruncated) return refuse(e.url, 'grille returned no complete answer.')
 
     // code and codeText are fixed: grille exits non-zero on any failed fetch,

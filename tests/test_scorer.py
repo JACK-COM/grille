@@ -6,8 +6,9 @@ import sys
 import unittest
 
 from tests.harness import GrilleCase, stub_scorer
-from grille import (DEFAULT_SCORER, SCORE_WITHHOLD, _home, _manifest, _write_manifest, main,
-                    manifest_findings, relay_settings, score_pages, score_settings, write_schema)
+from grille import main  # noqa: E402
+from grillelib.config import DEFAULT_SCORER, SCORE_WITHHOLD, _home, _manifest, _write_manifest, manifest_findings, relay_settings, score_settings, write_schema  # noqa: E402
+from grillelib.score import score_pages  # noqa: E402
 
 
 class ScorerTest(GrilleCase):

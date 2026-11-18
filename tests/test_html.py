@@ -2,7 +2,9 @@
 import unittest
 
 from tests.harness import GrilleCase
-from grille import (_Text, screen, store_dir)
+from grillelib.htmltext import _Text  # noqa: E402
+from grillelib.screen import screen  # noqa: E402
+from grillelib.store import store_dir  # noqa: E402
 
 
 class HtmlTest(GrilleCase):

@@ -7,8 +7,10 @@ import unittest
 from pathlib import Path
 
 from tests.harness import GrilleCase
-from grille import (_manifest, _write_manifest, apply_embed, embed, legacy_note, main,
-                    manifest_findings, migrate_embed, panoply)
+from grille import main  # noqa: E402
+import _embed as embed  # noqa: E402
+import _settings as panoply  # noqa: E402
+from grillelib.config import _manifest, _write_manifest, apply_embed, legacy_note, manifest_findings, migrate_embed  # noqa: E402
 
 
 class EmbedderTest(GrilleCase):

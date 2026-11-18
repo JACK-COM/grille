@@ -3,7 +3,7 @@ import unittest
 import zlib
 
 from tests.harness import GrilleCase, tiny_pdf
-from grille import (_label, _pdf_tokens, footer_labels, page_labels)
+from grillelib.pdf import _label, _pdf_tokens, footer_labels, page_labels  # noqa: E402
 
 
 def _labelled_pdf(packed):

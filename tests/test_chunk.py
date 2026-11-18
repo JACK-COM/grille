@@ -2,8 +2,11 @@
 import unittest
 
 from tests.harness import GrilleCase
-from grille import (CHUNK_TEXT, SCORE_WINDOW, _PLACEHOLDER, _chunk_text, _split_long, hold,
-                    reasons_for, store_dir, windows)
+from grillelib.chunk import CHUNK_TEXT, _chunk_text, _split_long  # noqa: E402
+from grillelib.patterns import reasons_for  # noqa: E402
+from grillelib.score import SCORE_WINDOW, windows  # noqa: E402
+from grillelib.screen import _PLACEHOLDER, hold  # noqa: E402
+from grillelib.store import store_dir  # noqa: E402
 
 
 class ChunkTest(GrilleCase):

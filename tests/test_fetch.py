@@ -9,8 +9,11 @@ import urllib.error
 import urllib.request
 
 from tests.harness import GrilleCase, tiny_pdf
-from grille import (DROPPED, _decode, _kind_of, _manifest, _write_manifest, acquire, dropped_path,
-                    fetch, main, save_fetched, store_dir, verify)
+from grille import main  # noqa: E402
+from grillelib.config import _manifest, _write_manifest  # noqa: E402
+from grillelib.documents import acquire  # noqa: E402
+from grillelib.net import DROPPED, _decode, _kind_of, dropped_path, fetch, save_fetched, verify  # noqa: E402
+from grillelib.store import store_dir  # noqa: E402
 
 
 class FetchTest(GrilleCase):

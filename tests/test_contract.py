@@ -6,7 +6,7 @@ import unittest
 import _scorer_contract as contract
 
 from tests.harness import GrilleCase
-from grille import score_text
+from grillelib.score import score_text  # noqa: E402
 
 
 class ContractTest(GrilleCase):

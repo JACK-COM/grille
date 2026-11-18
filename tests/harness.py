@@ -19,6 +19,8 @@ SRC = Path(os.environ.get("GRILLE_SRC", REPO / "src/grille"))
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
+import grillelib.config  # noqa: E402
+import _embed as embed  # noqa: E402
 import grille  # noqa: E402  (after the path, so GRILLE_SRC decides which tree loads)
 
 # A known-positive document: one relevant paragraph, one injected paragraph, one hidden-
@@ -86,12 +88,12 @@ class GrilleCase(unittest.TestCase):
         env.start()
         self.addCleanup(env.stop)
         # inside the patch, so its stop puts back whatever this shell had set
-        for _, names in grille.embed.CONFIG_KEYS.values():
+        for _, names in embed.CONFIG_KEYS.values():
             for name in names:
                 os.environ.pop(name, None)
-        held = grille.embed.settings(**{n: getattr(grille.embed, n) for n in EMBED_SETTINGS})
+        held = embed.settings(**{n: getattr(embed, n) for n in EMBED_SETTINGS})
         held.__enter__()
         self.addCleanup(held.__exit__, None, None, None)
-        grille.apply_embed()                # the throwaway settings, not this machine's
-        grille._write_manifest({"score": {"command": stub_scorer("0.9 if 'APPROVED' in t else 0.02"),
+        grillelib.config.apply_embed()                # the throwaway settings, not this machine's
+        grillelib.config._write_manifest({"score": {"command": stub_scorer("0.9 if 'APPROVED' in t else 0.02"),
                                           "withhold": 0.3}})

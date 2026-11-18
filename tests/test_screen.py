@@ -3,7 +3,11 @@ import re
 import unittest
 
 from tests.harness import GrilleCase
-from grille import (BLOCK_CAP, HIDDEN, _Text, _chunk_text, reasons_for, screen, store_dir)
+from grillelib.chunk import _chunk_text  # noqa: E402
+from grillelib.htmltext import HIDDEN, _Text  # noqa: E402
+from grillelib.patterns import BLOCK_CAP, reasons_for  # noqa: E402
+from grillelib.screen import screen  # noqa: E402
+from grillelib.store import store_dir  # noqa: E402
 
 
 class ScreenTest(GrilleCase):

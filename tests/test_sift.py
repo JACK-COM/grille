@@ -2,8 +2,10 @@
 import unittest
 
 from tests.harness import GrilleCase
-from grille import (SPLIT_MAX, _phrase_hits, _tags, acquire, interleave, rank, rank_each,
-                    split_prompt, topic_parts, verbatim)
+from grillelib.documents import acquire  # noqa: E402
+from grillelib.question import SPLIT_MAX, _tags, split_prompt, topic_parts  # noqa: E402
+from grillelib.rank import _phrase_hits, interleave, rank, rank_each  # noqa: E402
+from grillelib.relay import verbatim  # noqa: E402
 
 
 class SiftTest(GrilleCase):

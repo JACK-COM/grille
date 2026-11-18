@@ -119,13 +119,18 @@ test('a grille failure refuses the call and passes only grille\'s own words', as
   expect(seen.webFetched).toBe(0)
 })
 
-test('a dead relay is refused though grille exits 0', async ($, on) => {
-  const seen = stand(on, { exitCode: 0, stdout: 'relay failed (glm-5.3:cloud); the screened pages follow whole\n\npage text', stderr: '' })
+test('a dead relay is refused by its exit code', async ($, on) => {
+  const seen = stand(on, { exitCode: 5, stdout: 'relay failed (glm-5.3:cloud); the screened pages follow whole\n\npage text', stderr: '' })
 
   const ran = await $.tool.call(CALL)
 
   expect(ran.deny).toContain('not deciphered')
   expect(seen.webFetched).toBe(0)
+})
+
+test('a page that prints the relay-failure line is only a page', async ($, on) => {
+  stand(on, { exitCode: 0, stdout: 'relayed by m; 1 line verified\n\nrelay failed (quoted from the page)', stderr: '' })
+  expect((await $.tool.call(CALL)).deny).toBeUndefined()
 })
 
 test('an empty or truncated answer is refused', async ($, on) => {

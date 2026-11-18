@@ -6,7 +6,8 @@ import os
 import unittest
 
 from tests.harness import GrilleCase
-from grille import (cmd_uninstall, embed)
+import _embed as embed  # noqa: E402
+from grillelib.admin import cmd_uninstall  # noqa: E402
 
 
 class UninstallTest(GrilleCase):
