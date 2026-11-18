@@ -21,17 +21,12 @@ import _embed as embed
 import _settings as panoply
 
 from . import config
+from . import help_text
+from .commands_base import Verb
 from . import net
 from . import score
 from . import screen
 from . import store as spans
-
-
-def _positive(value):
-    n = int(value)
-    if n < 1:
-        raise argparse.ArgumentTypeError("must be 1 or more")
-    return n
 
 
 def cmd_check(a):
@@ -367,3 +362,66 @@ def cmd_calibrate(a):
                                  "file": str(Path(a.items).resolve())}}
     print(f"wrote {config._write_manifest(m)}")
     return 0
+
+
+def _configure_args(g):
+    g.add_argument("what", choices=["relay", "score", "embedder"])
+    g.add_argument("--detect", action="store_true", help="relay: probe the usual local server ports and print what answers")
+    g.add_argument("--url", help="relay: server base URL")
+    g.add_argument("--model", help="relay: model name; embedder: the ollama embedding model, as `ollama list` "
+                   "names it, or `default` to remove the setting")
+    g.add_argument("--api", choices=["openai", "ollama"], help="relay: request format (default openai)")
+    g.add_argument("--api-key-env", metavar="VAR", help="relay: environment variable holding a bearer key")
+    g.add_argument("--think", action="store_true", help="relay, ollama API: send think, for a reasoning model")
+    g.add_argument("--fallback", metavar="COMMAND", help="relay: command tried when the model fails; prompt on "
+                   "stdin, answer on stdout, {system} replaced by the system prompt")
+    g.add_argument("--off", action="store_true", help="relay: turn --decipher off")
+    g.add_argument("--command", help="score: the scorer command line")
+    g.add_argument("--withhold", type=float, help="score: the threshold, above 0 and at most 1")
+    g.add_argument("--reset", action="store_true", help="score: back to the default scorer; embedder: remove "
+                   "every setting from the section being written")
+    g.add_argument("--ollama-host", metavar="URL", help="embedder: where ollama answers, with its scheme, or `default`")
+    auto = g.add_mutually_exclusive_group()
+    auto.add_argument("--autostart", dest="autostart", nargs="?", const=True, default=None, choices=["default"],
+                      help="embedder: start `ollama serve` when the port is closed (the default); "
+                           "`--autostart default` removes the setting")
+    auto.add_argument("--no-autostart", dest="autostart", action="store_false", default=None,
+                      help="embedder: never start ollama")
+    g.add_argument("--venv", metavar="PATH", help="embedder: the in-process rung's virtualenv, or `default`")
+    g.add_argument("--global", dest="shared", action="store_true",
+                   help="embedder: write the settings every Panoply piece shares, not Grille's own")
+
+
+def _calibrate_args(b):
+    b.add_argument("items")
+    b.add_argument("--write", action="store_true", help="save the threshold and what it measured to grille.json")
+
+
+def _uninstall_args(u):
+    u.add_argument("--yes", action="store_true", help="skip the confirmation")
+    u.add_argument("--dry-run", action="store_true", help="list what would go, remove nothing")
+
+
+def _schema(a):
+    print(f"schema: {config.write_schema()}")
+    return 0
+
+
+def _guide(a):
+    print((help_text.HERE / "INSTALL-grille.md").read_text(encoding="utf-8"), end="")
+    return 0
+
+
+VERBS = (
+    Verb("migrate", "finish an upgrade: move older settings to where this version keeps them; safe to run any time",
+         cmd_migrate, nag=False),
+    Verb("check", "positive check: poppler, embedder, scorer, relay, settings, store", cmd_check, nag=False),
+    Verb("configure", "write a setting to grille.json, or the embedder's to ~/.panoply/config.json",
+         cmd_configure, _configure_args, nag=False, epilog='examples:\n  grille configure relay --detect                          list the local chat servers answering, with their models\n  grille configure relay --url http://127.0.0.1:1234/v1 --model qwen3-8b\n                                                           any OpenAI-compatible server: LM Studio, llama.cpp, vLLM\n  grille configure relay --url http://127.0.0.1:11434 --model gpt-oss:20b --api ollama --think\n                                                           ollama\'s own API, for a reasoning model\n  grille configure relay --url https://api.example.com/v1 --model NAME --api-key-env EXAMPLE_API_KEY\n                                                           a hosted API; the key stays in your environment\n  grille configure relay --off                             no --decipher, and no reminder to set it up\n  grille configure score --command "my-scorer --json"      another scorer; it needs a threshold before it withholds\n  grille configure score --withhold 0.35                   a threshold for the configured scorer\n  grille configure score --reset                           back to Augur and its calibrated threshold\n  grille configure embedder                                show the embedder Grille uses and where each value comes from\n  grille configure embedder --model nomic-embed-text       Grille\'s own model; other pieces keep theirs\n  grille configure embedder --model default                follow the global model again\n  grille configure embedder --ollama-host http://studio.local:11434 --global\n                                                           every piece that does not set its own\n\nThe embedder settings live in ~/.panoply/config.json, which every Panoply piece reads: Grille\'s\nown section first, then the top level (--global), then the shipped default. An environment\nvariable (MEMFIND_MODEL, OLLAMA_HOST, MEMFIND_NO_AUTOSTART=1, PANOPLY_VENV) beats them all.\n'),
+    Verb("calibrate", "measure the configured scorer on labelled pages; --write saves its threshold",
+         cmd_calibrate, _calibrate_args, epilog='An items file is\n  {"items": [{"id": "p1", "text": "...", "labels": {"instructs_agent": true}}, ...]}\nwith at least one injected page (true) and one clean page (false), taken from what you actually read.\nEvery window of every page is one scorer call, and the count is printed before the first.\n'),
+    Verb("schema", "write the settings schema where an editor can be pointed at it", _schema, nag=False),
+    Verb("uninstall", "remove what grille made; print what is left", cmd_uninstall, _uninstall_args, nag=False,
+         epilog='examples:\n  grille uninstall --dry-run                   what removal would take, without taking it\n  grille uninstall --yes                       remove it; the shared venv goes only with the last piece using it\n'),
+    Verb("help", "print a guide", _guide, lambda h: h.add_argument("topic", choices=["install"]) and None, nag=False),
+)

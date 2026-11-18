@@ -10,12 +10,14 @@ import _guard as guard
 import _web as web
 
 from . import config
+from .commands_base import Verb
 from . import documents
 from . import htmltext
 from . import net
 from . import patterns
 from . import pdf
 from . import pipeline
+from . import rank
 from . import screen
 from . import store as spans
 
@@ -129,3 +131,55 @@ def cmd_verify(a):
                 line += f"  ({net.DROPPED})"
             print(line)
     return 0 if all(r["status"] and 200 <= r["status"] < 300 for r in rows) else 1
+
+
+def ask_args(p):
+    """The sift options, shared by sift and fetch."""
+    p.add_argument("--ask", required=True, action="append",
+                   help="the question the pages must answer; repeat it, one per topic, and the "
+                        "questions take turns filling --pages")
+    p.add_argument("--split", action="store_true",
+                   help="ask each part of a compound --ask on its own: a numbered list, semicolons, "
+                        "several question marks or several lines (the WebFetch mod passes this)")
+    p.add_argument("--pages", type=positive, default=rank.PAGES_DEFAULT,
+                   help=f"how many to return (default {rank.PAGES_DEFAULT})")
+    p.add_argument("--score", action="store_true",
+                   help="score each page with the configured scorer (Augur by default) and withhold one "
+                        "at its threshold or above; `grille check` names both")
+    p.add_argument("--render", action="store_true", help="write pages with no text layer as PNGs and print the paths")
+
+
+def positive(value):
+    n = int(value)
+    if n < 1:
+        raise ValueError(value)
+    return n
+
+
+def _sift_args(p):
+    ask_args(p)
+    p.add_argument("file")
+
+
+def _fetch_args(p):
+    ask_args(p)
+    p.add_argument("url")
+    p.add_argument("--decipher", action="store_true",
+                   help="relay the screened pages through the chat model grille.json names and return "
+                        "only the lines that answer, each checked verbatim against the page; a hosted "
+                        "model sees the screened text. Cite the page, never grille or the model.")
+
+
+def _verify_args(p):
+    p.add_argument("url", nargs="+")
+    p.add_argument("--json", action="store_true")
+
+
+VERBS = (
+    Verb("sift", "return the pages that bear on a question, screened", cmd_sift, _sift_args),
+    Verb("screen", "withhold agent-addressed passages from a whole document", cmd_screen,
+         lambda p: p.add_argument("file") and None),
+    Verb("show", "print a withheld span by id", cmd_show, lambda p: p.add_argument("id") and None),
+    Verb("fetch", "get a URL and sift the response; no JavaScript", cmd_fetch, _fetch_args),
+    Verb("verify", "status, final address, type and redirects per URL", cmd_verify, _verify_args),
+)
