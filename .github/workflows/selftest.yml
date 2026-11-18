@@ -1,4 +1,4 @@
-# Runs the offline selftest on Linux and macOS for every push and pull request.
+# Runs tests/ and the install smoke check on Linux and macOS for every push and pull request.
 # Read-only on purpose: no secrets, no write token, actions pinned by commit, and a
 # checkout that keeps no credentials, so a workflow run can publish nothing. The
 # panoply-lib copy check needs the private sibling repo and stays in the local
@@ -42,5 +42,7 @@ jobs:
       - name: Install poppler
         run: |
           if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update -qq && sudo apt-get install -y -qq poppler-utils; else brew list poppler &>/dev/null || brew install poppler; fi
-      - name: Selftest
+      - name: Tests
+        run: python -m unittest discover -s tests -t .
+      - name: Install smoke check
         run: python src/grille/grille.py selftest
