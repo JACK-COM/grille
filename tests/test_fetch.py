@@ -12,7 +12,8 @@ from tests.harness import GrilleCase, tiny_pdf
 from grille import main  # noqa: E402
 from grillelib.config import _manifest, _write_manifest  # noqa: E402
 from grillelib.documents import acquire  # noqa: E402
-from grillelib.net import DROPPED, _decode, _kind_of, dropped_path, fetch, save_fetched, verify  # noqa: E402
+from grillelib.documents import of_fetched  # noqa: E402
+from grillelib.net import DROPPED, _decode, dropped_path, fetch, save_fetched, verify  # noqa: E402
 from grillelib.store import store_dir  # noqa: E402
 
 
@@ -135,7 +136,7 @@ class FetchTest(GrilleCase):
             path, kind = save_fetched(f"{base}/bogus", data, ctype, charset, store)
             self.assertTrue(kind == "html" and "caf\u00e9" in path.read_text(), "a charset Python lacks must fall through")
             data, _, ctype, charset, _ = fetch(f"{base}/markup")
-            self.assertEqual(_kind_of(data, ctype), "text", "an explicit text/plain must not be sniffed as html")
+            self.assertEqual(of_fetched(data, ctype).kind, "text", "an explicit text/plain must not be sniffed as html")
             latin = "<html><head><meta charset=iso-8859-1></head><body>caf\u00e9</body></html>".encode("latin-1")
             self.assertIn("caf\u00e9", _decode(latin, None), "meta charset ignored")
             rows = {u: verify(f"{base}{u}") for u in ("/manual.txt", "/nohead", "/r", "/gone", "/missing", "/loop")}

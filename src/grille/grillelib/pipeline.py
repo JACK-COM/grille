@@ -11,8 +11,8 @@ from typing import List, NamedTuple, Optional, Tuple
 
 from . import htmltext
 from .chunk import CHUNK_TEXT  # noqa: F401  (kept beside the other sizes a reader looks for)
+from . import documents
 from .documents import acquire, render_pages
-from .pdf import printed_numbers
 from .question import _tags, split_prompt, topic_parts
 from .rank import MIN_SCORE_NOTE, PAGES_DEFAULT, interleave, rank_each
 from .relay import relay, verbatim
@@ -65,7 +65,8 @@ def sift(file: str, questions: List[str], store: Path, *, pages: int = PAGES_DEF
     all_orders, method = rank_each(questions + [x for ps in parts for x in ps], doc, deadline)
     orders, part_orders = all_orders[:len(questions)], iter(all_orders[len(questions):])
     top = interleave(orders, pages)
-    unit = "page" if kind == "pdf" else "chunk"
+    fmt = documents.by_kind(kind)
+    unit = fmt.unit
     many = len(questions) > 1
     returned = {i for i, _, _ in top}
     for k, ps in enumerate(parts, 1):
@@ -75,7 +76,7 @@ def sift(file: str, questions: List[str], store: Path, *, pages: int = PAGES_DEF
                          f"ranking, which left out "
                          + "; ".join(f"{unit} {n}, the best for \"{x}\"" for x, n in lost)
                          + ": if those are separate questions, ask each on its own (one --ask each)")
-    labels = printed_numbers(file, doc) if kind == "pdf" else {}
+    labels = fmt.labels(file, doc)
     if labels:
         notes.append("this PDF prints its own page numbers: each heading gives the printed one, "
                      "and #page=N takes the physical one")

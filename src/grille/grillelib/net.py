@@ -11,6 +11,8 @@ from pathlib import Path
 import _guard as guard
 import _web as web
 
+from . import documents
+
 
 FETCH_CAP = 64 * 1024 * 1024   # the largest manual WebFetch has saved here is 10 MB
 
@@ -59,20 +61,6 @@ def fetch(url, cap=FETCH_CAP, timeout=FETCH_TIMEOUT, deadline=None):
                 int(final != url))
 
 
-def _kind_of(data, ctype):
-    """An explicit content type is trusted; the body is sniffed only where the server said
-    nothing useful, so a text/plain excerpt that shows HTML markup stays text."""
-    if data[:5] == b"%PDF-" or ctype == "application/pdf":
-        return "pdf"
-    if ctype in ("text/html", "application/xhtml+xml"):
-        return "html"
-    if ctype in ("", "application/octet-stream"):
-        head = data[:2048].lower()
-        if b"<html" in head or b"<!doctype html" in head:
-            return "html"
-    return "text"
-
-
 _META_CHARSET = re.compile(rb"""<meta[^>]+charset=["']?\s*([\w.:-]+)""", re.I)
 
 
@@ -93,11 +81,13 @@ def _decode(data, charset):
 def save_fetched(url, data, ctype, charset, store):
     """Write the body into the session store under a name acquire() can type, and return
     (path, kind). Text is re-encoded as UTF-8 so acquire reads it without a charset."""
-    kind = _kind_of(data, ctype)
+    fmt = documents.of_fetched(data, ctype)
+    kind = fmt.kind
     base = re.sub(r"[^\w.-]+", "_", Path(urllib.parse.urlsplit(url).path).name)[:60] or "page"
-    base = re.sub(r"\.(pdf|html?|txt)$", "", base, flags=re.I)
-    path = store / f"fetch-{hashlib.sha1(url.encode()).hexdigest()[:10]}-{base}.{kind if kind != 'text' else 'txt'}"
-    if kind == "pdf":
+    base = re.sub("|".join(re.escape(s) + "$" for f in documents.FORMATS for s in f.suffixes) + r"|\.txt$", "", base,
+                  flags=re.I)
+    path = store / f"fetch-{hashlib.sha1(url.encode()).hexdigest()[:10]}-{base}.{fmt.ext}"
+    if fmt.binary:
         path.write_bytes(data)
     else:
         path.write_text(_decode(data, charset), encoding="utf-8")

@@ -15,7 +15,6 @@ from . import documents
 from . import htmltext
 from . import net
 from . import patterns
-from . import pdf
 from . import pipeline
 from . import rank
 from . import screen
@@ -31,10 +30,11 @@ def cmd_sift(a):
 def cmd_screen(a):
     pages, kind, empty = documents.acquire(a.file)
     store = spans.store_dir()
-    unit = "page" if kind == "pdf" else "chunk"
+    fmt = documents.by_kind(kind)
+    unit = fmt.unit
     print(f"# grille screen: {Path(a.file).name}\n")
     total = 0
-    labels = pdf.printed_numbers(a.file, pages) if kind == "pdf" else {}
+    labels = fmt.labels(a.file, pages)
     for i, page in enumerate(pages):
         body, withheld = screen.screen(page.rstrip(), a.file, i + 1, store)
         total += len(withheld)
@@ -95,12 +95,9 @@ def cmd_fetch(a):
           + "  \nsaved in this session's store")
     if net.dropped_path(a.url, final):
         print(f"warning: {net.DROPPED}")
-    if kind == "html":
-        t = htmltext._Text()
-        t.feed(net._decode(data, charset))
-        if len(t.text(chrome=True).strip()) < htmltext.APP_SHELL and b"<script" in data.lower():
-            print("this page carries scripts and almost no text: a JavaScript app renders "
-                  "nothing here, so read it in the browser")
+    note = documents.by_kind(kind).note(data, net._decode(data, charset))
+    if note:
+        print(note)
     print()
     # a second model reads what passes under --decipher, so the stronger screen always runs then
     r = pipeline.sift(str(path), a.ask, store, pages=a.pages, split=getattr(a, "split", False),
