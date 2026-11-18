@@ -963,13 +963,6 @@ def acquire(path):
 
 # ---------------------------------------------------------------- sift
 
-def _cos(a, b):
-    d = sum(x * y for x, y in zip(a, b))
-    na = math.sqrt(sum(x * x for x in a)) or 1.0
-    nb = math.sqrt(sum(y * y for y in b)) or 1.0
-    return d / (na * nb)
-
-
 _STOP = {"the", "a", "an", "of", "for", "to", "in", "on", "and", "or", "is", "what", "how",
          "does", "with", "at", "by", "from", "this", "that", "it", "its", "are", "be", "any",
          "about", "all", "every", "text", "passage", "passages", "quote", "verbatim"}
@@ -1004,12 +997,11 @@ def rank_each(questions, pages):
                 owner.append(i)
         # bare text: the model's retrieval prompts never beat it here, nor on Locket's task
         vecs = embed.embed(list(questions) + docs, quiet=True)
-        qvs, dv = vecs[:len(questions)], vecs[len(questions):]
+        qvs, dv = vecs[:len(questions)], embed.normalise(vecs[len(questions):])
         bests = []
         for qv in qvs:
             best = {}
-            for i, v in zip(owner, dv):
-                s = _cos(qv, v)
+            for i, s in zip(owner, embed.cosines(qv, dv).tolist()):
                 if s > best.get(i, -1.0):
                     best[i] = s
             bests.append(best)
