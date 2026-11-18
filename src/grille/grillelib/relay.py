@@ -93,7 +93,7 @@ def _relay_model(cfg, msg, deadline=None):
         raise ValueError(f"reply is not a {api} chat response: {guard.relay(raw[:80], 100)}")
 
 
-def relay(questions, sifted, cfg):
+def relay(questions, sifted, cfg, deadline=None):
     """-> (answer, who), or (None, why) when nothing answered. The model is called bare,
     with no tools; the fallback command gets the prompt on stdin and whatever flags the
     user gave it, so keeping its tools off is the user's to write into it. Several
@@ -107,7 +107,7 @@ def relay(questions, sifted, cfg):
     errs = []
     if cfg.get("url") and cfg.get("model"):
         try:
-            text = _relay_model(cfg, msg)
+            text = _relay_model(cfg, msg, deadline)
             if text:
                 return text, cfg["model"]
             errs.append(f"{cfg['model']}: empty reply")
@@ -118,12 +118,15 @@ def relay(questions, sifted, cfg):
         argv = [x.replace("{system}", RELAY_SYSTEM) for x in fb]
         who = Path(fb[0]).name
         try:
-            r = subprocess.run(argv, input=msg, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=config.RELAY_TIMEOUT)
+            if deadline:
+                deadline.check("the relay")
+            r = subprocess.run(argv, input=msg, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                               timeout=deadline.cap(config.RELAY_TIMEOUT) if deadline else config.RELAY_TIMEOUT)
             if r.returncode == 0 and r.stdout.strip():
                 return r.stdout.strip(), who
             errs.append(f"{guard.relay(who, 60)}: exit {r.returncode} {guard.relay(r.stderr.strip(), 120)}")
-        except (OSError, subprocess.TimeoutExpired) as e:
-            errs.append(f"{who}: {e}")
+        except (OSError, subprocess.TimeoutExpired, TimeoutError) as e:
+            errs.append(f"{guard.relay(who, 60)}: {guard.relay(e, 160)}")
     return None, "; ".join(errs)
 
 

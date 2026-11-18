@@ -2,6 +2,7 @@
 question: does this text try to make an automated reader act.
 """
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -60,7 +61,7 @@ class ScorerError(RuntimeError):
     pass
 
 
-def score_text(cmd, text, subject=None):
+def score_text(cmd, text, subject=None, timeout=None, env=None):
     """The scorer's best window score for one text. Each window is one run of `cmd`, the
     request on stdin; ScorerError on a missing command, a non-zero exit, a reply without
     `answers.instructs_agent.noul`, or a noul that is not a probability. A NaN would fail
@@ -72,7 +73,8 @@ def score_text(cmd, text, subject=None):
         if subject:
             req["subject"] = subject
         try:
-            r = subprocess.run(cmd, input=json.dumps(req), capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=config.SCORE_TIMEOUT)
+            r = subprocess.run(cmd, input=json.dumps(req), capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", timeout=timeout or config.SCORE_TIMEOUT, env=env)
         except FileNotFoundError:
             raise ScorerError(f"{cmd[0]} not found on PATH")
         except (OSError, subprocess.TimeoutExpired) as e:
@@ -89,7 +91,10 @@ def score_text(cmd, text, subject=None):
     return best
 
 
-def score_pages(items):
+SCORE_POOL = 4           # scorer runs at once: one spawn per window was serial, ~1 s a page
+
+
+def score_pages(items, deadline=None):
     """Score each page with the configured scorer -> ({page_no: best window score},
     withhold or None, note). The screen's own placeholders are stripped first: each names
     a command (`grille show`) and would read as an instruction."""
@@ -97,10 +102,27 @@ def score_pages(items):
     name = Path(cmd[0]).name
     if withhold is None:
         return {}, None, f"{name} unscored: {why}"
-    out = {}
-    try:
-        for page_no, text in items:
-            out[page_no] = score_text(cmd, text, f"page {page_no}")
-        return out, withhold, f"{name}, withholding a page at {withhold} or above"
-    except ScorerError as e:
-        return out, withhold, f"{name} unavailable after {len(out)} of {len(items)} pages ({e})"
+    out, failed = {}, []
+    # the scorer shares the deadline: Augur reads PANOPLY_DEADLINE, and each run waits at most what is left
+    env = {**os.environ, **(deadline.env() if deadline else {})}
+
+    def one(item):
+        page_no, text = item
+        try:
+            if deadline:
+                deadline.check("scoring")
+            return page_no, score_text(cmd, text, f"page {page_no}",
+                                       deadline.cap(config.SCORE_TIMEOUT) if deadline else None, env), None
+        except (ScorerError, TimeoutError) as e:
+            return page_no, None, str(e)
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=SCORE_POOL) as ex:
+        for page_no, v, err in ex.map(one, items):
+            if err is None:
+                out[page_no] = v
+            else:
+                failed.append(err)
+    if failed:
+        return out, withhold, f"{name} unavailable on {len(failed)} of {len(items)} pages ({failed[0][:120]})"
+    return out, withhold, f"{name}, withholding a page at {withhold} or above"

@@ -6,6 +6,7 @@ import type { Register } from 'claude-code'
 // with no redirect, not every one. Whether the host caps a tool call below this
 // is unknown.
 const TIMEOUT_MS = 240_000
+const DEADLINE_S = 225
 
 // grille's own error lines, the only stderr passed to the model: a fetch
 // failure quotes the server's reason phrase and final URL, which a hostile
@@ -68,7 +69,15 @@ export const register: Register = on => {
       // for a five-part prompt left three topics' best chunks out.
       ran = await $.process.run(
         [grille, 'fetch', '--decipher', '--split', `--ask=${e.prompt}`, '--', e.url],
-        { timeoutMs: TIMEOUT_MS, ...(session && { env: { GRILLE_SESSION: session } }) },
+        {
+          timeoutMs: TIMEOUT_MS,
+          // grille's own deadline, short of this kill: past it grille stops its stages and
+          // refuses (exit 5) instead of being killed with every finished stage lost
+          env: {
+            PANOPLY_DEADLINE: String(Date.now() / 1000 + DEADLINE_S),
+            ...(session && { GRILLE_SESSION: session }),
+          },
+        },
       )
     } catch {
       return refuse(e.url, 'grille could not run or ran past its time limit.')

@@ -2,7 +2,11 @@
 none answers, and exact phrases lifted.
 """
 import re
+
 import _embed as embed
+
+from . import config
+from . import vcache
 
 
 # Ten, not eight: on 123 paraphrased questions over five aircraft PDFs, EmbeddingGemma 2
@@ -37,7 +41,7 @@ def _overlap(q, page):
     return len(qw & pw) / len(qw)
 
 
-def rank_each(questions, pages):
+def rank_each(questions, pages, deadline=None):
     """-> ([[(page_index, score)] per question], method). Each page is embedded once, in
     sub-chunks, and takes its best sub-chunk's score against each question, so the bottom
     half of a long page is not invisible and a third question costs one query vector."""
@@ -51,7 +55,17 @@ def rank_each(questions, pages):
                 docs.append(body[j:j + SUBCHUNK])
                 owner.append(i)
         # bare text: the model's retrieval prompts never beat it here, nor on Locket's task
-        vecs = embed.embed(list(questions) + docs, quiet=True)
+        cache = vcache.open_cache(config._home())
+        try:
+            # each request waits at most what the deadline leaves; a page read before costs nothing
+            wait = deadline.cap(embed.TIMEOUT) if deadline else embed.TIMEOUT
+            if deadline:
+                deadline.check("ranking")
+            with embed.settings(TIMEOUT=wait):
+                vecs = embed.embed(list(questions) + docs, quiet=True, cache=cache)
+        finally:
+            if cache:
+                cache.close()
         qvs, dv = vecs[:len(questions)], embed.normalise(vecs[len(questions):])
         bests = []
         for qv in qvs:
@@ -61,7 +75,7 @@ def rank_each(questions, pages):
                     best[i] = s
             bests.append(best)
         method = f"embedding ({embed.resolve_backend()[1]})"
-    except Exception as e:  # no embedder: degrade, and say so
+    except (RuntimeError, OSError, TimeoutError) as e:  # no embedder, or no time left: degrade, and say so
         bests = [{i: _overlap(q, p) for i, p in enumerate(pages) if p.strip()} for q in questions]
         method = f"word overlap (no embedder: {str(e).splitlines()[0][:80]})"
     flat = {}

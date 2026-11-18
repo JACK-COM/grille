@@ -9,6 +9,7 @@ import urllib.request
 from pathlib import Path
 
 import _guard as guard
+import _web as web
 
 from . import config
 from . import documents
@@ -61,7 +62,9 @@ def cmd_fetch(a):
                                    "--url URL --model NAME` turns it on)" if a.relay is False else config.RELAY_SETUP))
     store = spans.store_dir()
     try:
-        data, final, ctype, charset, hops = net.fetch(a.url)
+        # one budget for the whole fetch: the mod sets PANOPLY_DEADLINE below its own kill
+        deadline = web.Deadline()
+        data, final, ctype, charset, hops = net.fetch(a.url, deadline=deadline if deadline.end else None)
     except net.Redirected as e:
         # the next fetch of that address is the caller's, so it passes their own permission
         # check; the address is the page's to write, so it is screened like the page
@@ -101,11 +104,12 @@ def cmd_fetch(a):
     print()
     # a second model reads what passes under --decipher, so the stronger screen always runs then
     r = pipeline.sift(str(path), a.ask, store, pages=a.pages, split=getattr(a, "split", False),
-                      score=a.score or bool(a.decipher), render=a.render, strict=bool(a.decipher))
+                      score=a.score or bool(a.decipher), render=a.render, strict=bool(a.decipher),
+                      deadline=deadline if deadline.end else None)
     if not a.decipher:
         pipeline.emit(pipeline.render(r), r)
         return 0
-    text, code = pipeline.decipher(r, a.relay, str(path))
+    text, code = pipeline.decipher(r, a.relay, str(path), deadline if deadline.end else None)
     pipeline.emit(text, r)
     return code
 

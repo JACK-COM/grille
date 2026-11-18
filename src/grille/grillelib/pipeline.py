@@ -49,7 +49,7 @@ class SiftResult(NamedTuple):
 
 
 def sift(file: str, questions: List[str], store: Path, *, pages: int = PAGES_DEFAULT, split: bool = False,
-         score: bool = False, render: bool = False, strict: bool = False) -> SiftResult:
+         score: bool = False, render: bool = False, strict: bool = False, deadline=None) -> SiftResult:
     """`strict` (fetch --decipher): a page the scorer could not score is withheld, as one it
     flagged is, since a second model reads whatever passes."""
     doc, kind, empty = acquire(file)
@@ -62,7 +62,7 @@ def sift(file: str, questions: List[str], store: Path, *, pages: int = PAGES_DEF
         if len(questions) > asked:
             notes.append(f"--split asked {len(questions)} questions in place of {asked}")
     parts = [topic_parts(q) for q in questions]
-    all_orders, method = rank_each(questions + [x for ps in parts for x in ps], doc)
+    all_orders, method = rank_each(questions + [x for ps in parts for x in ps], doc, deadline)
     orders, part_orders = all_orders[:len(questions)], iter(all_orders[len(questions):])
     top = interleave(orders, pages)
     unit = "page" if kind == "pdf" else "chunk"
@@ -96,7 +96,7 @@ def sift(file: str, questions: List[str], store: Path, *, pages: int = PAGES_DEF
     whole: List[Tuple[int, str]] = []
     score_note = None
     if score:
-        scores, threshold, score_note = score_pages([(p.n, p.body) for p in screened])
+        scores, threshold, score_note = score_pages([(p.n, p.body) for p in screened], deadline)
         for k, p in enumerate(screened):
             v = scores.get(p.n)
             unread = strict and threshold is not None and v is None
@@ -160,11 +160,11 @@ def footer(r: SiftResult) -> str:
     return f"\n---\n{r.withheld} span{'s' if r.withheld != 1 else ''} withheld; store {r.store}"
 
 
-def decipher(r: SiftResult, cfg: dict, file: str) -> Tuple[str, int]:
+def decipher(r: SiftResult, cfg: dict, file: str, deadline=None) -> Tuple[str, int]:
     """-> (text, exit code). The relay reads the header and the screened pages; only its
     lines found verbatim in the pages are kept, and the rest are held behind an id."""
     pages = body(r)
-    answer, who = relay(r.questions, head(r) + "\n" + pages, cfg)
+    answer, who = relay(r.questions, head(r) + "\n" + pages, cfg, deadline)
     if answer is None:
         return f"relay failed ({who}); the screened pages follow whole\n\n{render(r)}", RELAY_FAILED
     out = [head(r).rstrip()]
