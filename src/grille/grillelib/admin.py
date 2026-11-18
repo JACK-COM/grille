@@ -236,6 +236,8 @@ def cmd_configure(a):
     else:
         s = m.get("score") if isinstance(m.get("score"), dict) else {}
         if a.reset:
+            if s:
+                confirmed(a, [f"score every page with {shlex.join(config.DEFAULT_SCORER)} and its calibrated threshold"])
             m.pop("score", None)
         else:
             if a.command is not None:
@@ -243,8 +245,7 @@ def cmd_configure(a):
                 if not cmd:
                     sys.exit("grille: --command is empty")
                 if cmd != s.get("command"):
-                    if cmd != config.DEFAULT_SCORER:
-                        confirmed(a, [f"run  {shlex.join(cmd)}  on every page `--score` or `fetch --decipher` reads"])
+                    confirmed(a, [f"run  {shlex.join(cmd)}  on every page `--score` or `fetch --decipher` reads"])
                     # a threshold belongs to the scorer that earned it
                     s = {"command": cmd}
                     if a.withhold is None and cmd != config.DEFAULT_SCORER:
@@ -253,6 +254,9 @@ def cmd_configure(a):
             if a.withhold is not None:
                 if not (0 < a.withhold <= 1):
                     sys.exit("grille: --withhold must be above 0 and at most 1")
+                if a.withhold != s.get("withhold"):
+                    # a higher threshold passes more pages: 1 turns the scorer off
+                    confirmed(a, [f"withhold a page only at instructs-agent {a.withhold} or above"])
                 s["withhold"] = a.withhold
             m["score"] = s
     print(f"wrote {config._write_manifest(m)}")
@@ -357,6 +361,8 @@ def cmd_calibrate(a):
     if not a.write:
         print("rerun with --write to save it for this scorer")
         return 0
+    # the items decide the threshold, so whoever wrote them decides what passes: a person's act
+    confirmed(a, [f"withhold a page at instructs-agent {cut:.2f} or above, as measured on {guard.relay(a.items, 200)}"])
     m = config._manifest()
     m["score"] = {"command": cmd, "withhold": cut,
                   "calibrated": {"items": len(rows), "auroc": round(auroc, 3), "clean_withheld": len(fp),

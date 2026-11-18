@@ -270,8 +270,15 @@ def page_labels(path, count):
         if not isinstance(cat, dict) or "/PageLabels" not in cat:
             return {}
 
+        parsed = {}
+
         def deref(v):
-            return _pdf_parse(objs.get(v[1])) if isinstance(v, tuple) else v
+            # one parse per object: a tree whose kids all name one 40k-pair /Nums re-parsed it per kid
+            if not isinstance(v, tuple):
+                return v
+            if v[1] not in parsed:
+                parsed[v[1]] = _pdf_parse(objs.get(v[1]))
+            return parsed[v[1]]
 
         ranges, todo, seen, visits = [], [cat["/PageLabels"]], set(), 0
         while todo and visits < LABEL_NODES:          # the number tree: /Nums leaves under /Kids
@@ -283,8 +290,13 @@ def page_labels(path, count):
                 v = deref(v)
             if not isinstance(v, dict):
                 continue
-            nums = deref(v.get("/Nums"))
-            if isinstance(nums, list):
+            nums_ref = v.get("/Nums")
+            if isinstance(nums_ref, tuple) and ("nums", nums_ref[1]) in seen:
+                continue
+            if isinstance(nums_ref, tuple):
+                seen.add(("nums", nums_ref[1]))
+            nums = deref(nums_ref)
+            if isinstance(nums, list) and len(ranges) < count + LABEL_NODES:
                 ranges += [(nums[k], deref(nums[k + 1])) for k in range(0, len(nums) - 1, 2)
                            if isinstance(nums[k], int) and nums[k] >= 0]
             kids = deref(v.get("/Kids"))

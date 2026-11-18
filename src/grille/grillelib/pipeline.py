@@ -96,13 +96,15 @@ def sift(file: str, questions: List[str], store: Path, *, pages: int = PAGES_DEF
         screened.append(Page(i + 1, s, body, qs, None))
     whole: List[Tuple[int, str]] = []
     score_note = None
-    if score:
+    if score or strict:
         scores, threshold, score_note = score_pages([(p.n, p.body) for p in screened], deadline)
         for k, p in enumerate(screened):
             v = scores.get(p.n)
-            unread = strict and threshold is not None and v is None
-            if threshold is not None and ((v is not None and v >= threshold) or unread):
-                why = "the scorer did not answer" if unread else f"scorer instructs-agent {v:.2f}"
+            # under --decipher a page nothing cleared is withheld: unscored, or scored with no threshold
+            unread = strict and (v is None or threshold is None)
+            if unread or (threshold is not None and v is not None and v >= threshold):
+                why = ("the scorer has no calibrated threshold" if threshold is None else "the scorer did not answer") \
+                    if unread else f"scorer instructs-agent {v:.2f}"
                 line, held_whole = hold(p.body, [why], file, p.n, store)
                 screened[k] = p._replace(body=line, scored=v)
                 withheld += 1

@@ -44,7 +44,7 @@ PATTERNS = [
         rf"|\b(?:exfiltrate|send|post|upload|forward|email|e-mail|mail|transmit|leak|share|output|print|reveal)(?!(?<=output)\s+tokens?\b)\s+(?:the\s+|your\s+|all\s+|any\s+|me\s+)*(?:user.s\s+)?{_SECRETS}",
         re.I)),
     ("carries a shell or destructive command", re.compile(
-        r"\brm\s+-[a-z]*r[a-z]*f?\s|\brm\s+-[a-z]*f[a-z]*r\s"
+        r"\brm\s+-[a-z]{0,8}r[a-z]{0,8}f?\s|\brm\s+-[a-z]{0,8}f[a-z]{0,8}r\s"
         r"|\bsudo\s+\S"
         r"|\bcurl\s[^\n|]*\|\s*(?:ba|z|da)?sh\b|\bwget\s[^\n|]*\|\s*(?:ba|z|da)?sh\b"
         r"|\bdd\s+if=|\bmkfs(?:\.\w+)?\s|\bdiskutil\s+(?:erase|reformat)"

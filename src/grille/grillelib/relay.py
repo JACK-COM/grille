@@ -1,6 +1,7 @@
 """The relay: a chat model reads the screened pages and quotes the lines that answer, and
 only lines found verbatim in those pages are kept.
 """
+import http.client
 import json
 import os
 import re
@@ -127,7 +128,7 @@ def relay(questions, sifted, cfg, deadline=None):
             if text:
                 return text, cfg["model"]
             errs.append(f"{cfg['model']}: empty reply")
-        except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError, http.client.HTTPException) as e:
             errs.append(f"{guard.relay(cfg['model'], 80)}: {guard.relay(getattr(e, 'reason', None) or e, 200)}")
     fb = cfg.get("fallback")
     if fb:

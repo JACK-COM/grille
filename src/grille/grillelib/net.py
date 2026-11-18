@@ -2,6 +2,7 @@
 quick check that a URL answers.
 """
 import hashlib
+import http.client
 import re
 import urllib.error
 import urllib.parse
@@ -33,6 +34,18 @@ Redirected = web.Redirected          # another origin: reported, never followed
 Inward = web.Inward                  # a hop from a public origin into a private address
 
 
+def _named_local(host):
+    """Whether the caller named this machine or a private address itself (`localhost`, a
+    loopback or private IP literal): the one case a fetch may stay inside the network."""
+    import ipaddress
+    if host.lower() in ("localhost", "localhost."):
+        return True
+    try:
+        return not ipaddress.ip_address(host).is_global
+    except ValueError:
+        return False
+
+
 def _open(url, method, timeout, deadline=None, follow="same-origin"):
     """-> the response. Raises ValueError off http, Redirected for a hop to another origin
     (follow="same-origin"), Inward for one from a public origin into this machine's own or a
@@ -41,7 +54,7 @@ def _open(url, method, timeout, deadline=None, follow="same-origin"):
         raise ValueError(f"only http and https are fetched: {guard.relay(url, 200)}")
     req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
     # a page the agent asked for by name may be local; a hop it did not ask for may not
-    public = guard.public_address(urllib.parse.urlsplit(url).hostname or "")
+    public = not _named_local(urllib.parse.urlsplit(url).hostname or "")
     return web.open_url(req, timeout, deadline=deadline, follow=follow, guard_private=public, hops=REDIRECT_CAP)
 
 
@@ -57,7 +70,9 @@ def fetch(url, cap=FETCH_CAP, timeout=FETCH_TIMEOUT, deadline=None):
             raise ValueError(f"{int(length)} bytes is over the {cap} byte cap")
         data = web.read(resp, cap, deadline)
         final = resp.geturl()
-        return (data, final, resp.headers.get_content_type(), resp.headers.get_content_charset(),
+        # a content type is a token: one a server pads with prose is cut to its token characters
+        ctype = re.sub(r"[^\w.+/-]", "", resp.headers.get_content_type())[:80]
+        return (data, final, ctype, resp.headers.get_content_charset(),
                 int(final != url))
 
 
@@ -73,8 +88,8 @@ def _decode(data, charset):
         if enc:
             try:
                 return data.decode(enc, errors="replace")
-            except LookupError:
-                continue
+            except (LookupError, UnicodeError, ValueError):
+                continue                  # an unknown codec, or one (idna, undefined) that refuses outright
     return data.decode("utf-8", errors="replace")
 
 
@@ -128,7 +143,7 @@ def verify(url, timeout=VERIFY_TIMEOUT):
             row.update(status=e.code, final=e.geturl(), type=e.headers.get_content_type(),
                        dropped_path=dropped_path(url, e.geturl()))
             return row
-        except (urllib.error.URLError, ValueError, OSError, TimeoutError) as e:
+        except (urllib.error.URLError, ValueError, OSError, TimeoutError, http.client.HTTPException) as e:
             row["error"] = guard.relay(getattr(e, "reason", None) or e, 300)
             return row
     return row

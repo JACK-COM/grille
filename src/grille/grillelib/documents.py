@@ -15,6 +15,9 @@ from . import htmltext
 from . import pdf
 
 
+# A line the page starts with `[grille` would pass for Grille's own placeholder: the scorer
+# strips those before scoring, and a reader takes them for Grille's word.
+_FRAMING = re.compile(r"(?im)^(\s*)\[(?=\s*grille\b)")
 EMPTY_PAGE = 20          # fewer stripped chars than this and the page has no text layer
 
 TOOL_TIMEOUT = 60       # seconds pdftotext or pdftoppm may run on one file or page
@@ -114,7 +117,7 @@ def acquire(path):
         sys.exit(f"grille: no such file: {p}")
     fmt = of_file(p)
     pages, empty = fmt.read(p)
-    return pages, fmt.kind, empty
+    return [_FRAMING.sub(r"\1[the page writes: ", pg) for pg in pages], fmt.kind, empty
 
 
 def render_pages(pdf, numbers, store):

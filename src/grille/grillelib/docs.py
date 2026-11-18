@@ -2,7 +2,9 @@
 and sift it, verify that URLs answer.
 """
 import json
+import http.client
 import sys
+import urllib.parse
 import urllib.error
 from pathlib import Path
 
@@ -69,7 +71,7 @@ def cmd_fetch(a):
         # the next fetch of that address is the caller's, so it passes their own permission
         # check; the address is the page's to write, so it is screened like the page
         where = guard.relay(e.url, 300)
-        why = patterns.reasons_for(where)
+        why = patterns.reasons_for(guard.relay(urllib.parse.unquote(e.url), 300))
         print(f"# grille fetch: {guard.relay(a.url, 300)}\n")
         if why:
             line, _ = screen.hold(where, why, a.url, 0, store)
@@ -80,18 +82,19 @@ def cmd_fetch(a):
     except net.Inward:
         sys.exit("grille: fetch failed: a redirect into a private address was refused")
     except urllib.error.HTTPError as e:
-        sys.exit(f"grille: fetch failed: HTTP {e.code} {guard.relay(e.reason, 80)} for {guard.relay(e.geturl(), 300)}")
+        sys.exit(f"grille: fetch failed: HTTP {e.code} {server_text(e.reason, 'reason')} for "
+                 f"{server_text(e.geturl(), 'address')}")
     except TimeoutError:
         sys.exit("grille: fetch failed: the server ran past the time allowed")
-    except (urllib.error.URLError, ValueError, OSError) as e:
-        sys.exit(f"grille: fetch failed: {guard.relay(getattr(e, 'reason', None) or e, 300)}")
+    except (urllib.error.URLError, ValueError, OSError, http.client.HTTPException) as e:
+        sys.exit(f"grille: fetch failed: {server_text(getattr(e, 'reason', None) or e, 'error')}")
     try:
         path, kind = net.save_fetched(a.url, data, ctype, charset, store)
     except OSError as e:
         sys.exit(f"grille: could not save the response: {e}")
     print(f"# grille fetch: {guard.relay(a.url, 300)}\n")
-    print(f"{len(data)} bytes, {guard.relay(ctype, 80)}, read as {kind}"
-          + (f", redirected within the site to {guard.relay(final, 300)}" if hops else "")
+    print(f"{len(data)} bytes, {server_text(ctype, 'type')}, read as {kind}"
+          + (f", redirected within the site to {server_text(final, 'address')}" if hops else "")
           + "  \nsaved in this session's store")
     if net.dropped_path(a.url, final):
         print(f"warning: {net.DROPPED}")
@@ -111,6 +114,14 @@ def cmd_fetch(a):
     return code
 
 
+def server_text(s, what):
+    """A string a server wrote (a URL, a reason phrase, a content type), made printable and
+    screened as the page is, decoded first so `%20` hides no space: flagged, it is named, not shown."""
+    plain = guard.relay(urllib.parse.unquote(str(s)), 300)
+    why = patterns.reasons_for(plain)
+    return f"[{what} withheld: {'; '.join(why)}]" if why else guard.relay(s, 300)
+
+
 def cmd_verify(a):
     rows = [net.verify(u) for u in a.url]
     if a.json:
@@ -118,12 +129,12 @@ def cmd_verify(a):
     else:
         for r in rows:
             if r["error"]:
-                print(f"ERR  {r['error']}  {r['url']}")
+                print(f"ERR  {server_text(r['error'], 'error')}  {guard.relay(r['url'], 300)}")
                 continue
             hop = f"{r['redirects']} redirect{'s' if r['redirects'] != 1 else ''}"
-            line = f"{r['status']}  {r['type'] or '-'}  {hop}  {r['url']}"
+            line = f"{r['status']}  {server_text(r['type'] or '-', 'type')}  {hop}  {guard.relay(r['url'], 300)}"
             if r["final"] and r["final"] != r["url"]:
-                line += f" -> {r['final']}"
+                line += f" -> {server_text(r['final'], 'address')}"
             if r["dropped_path"]:
                 line += f"  ({net.DROPPED})"
             print(line)
