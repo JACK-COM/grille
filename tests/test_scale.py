@@ -45,3 +45,36 @@ class Scale(GrilleCase):
             self.assertTrue(all("withheld" in p.body for p in r.pages), "an unscored page passed under --decipher")
             text, code = pipeline.decipher(r, {"url": "http://127.0.0.1:9/v1", "model": "m"}, str(self.f), d)
         self.assertEqual(code, pipeline.RELAY_FAILED)
+
+
+class AuditFixes(Scale):
+    def test_two_runs_share_the_cache_without_a_lock_crash(self):
+        a, b = vcache.open_cache(config._home()), vcache.open_cache(config._home())
+        a["x"] = [1.0]
+        b["y"] = [2.0]
+        a.close()
+        b.close()
+        c = vcache.open_cache(config._home())
+        self.assertEqual((list(c.get("x")), list(c.get("y"))), ([1.0], [2.0]))
+        c.close()
+
+    def test_detect_finds_a_local_server(self):
+        import json as _json
+        import threading
+        from http.server import BaseHTTPRequestHandler, HTTPServer
+        from grillelib import admin
+
+        class H(BaseHTTPRequestHandler):
+            def log_message(self, *a):
+                pass
+
+            def do_GET(self):
+                body = _json.dumps({"data": [{"id": "chat-1"}, {"id": "nomic-embed"}]}).encode()
+                self.send_response(200)
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+        srv = HTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.shutdown)
+        self.assertEqual(admin._models_at(f"http://127.0.0.1:{srv.server_address[1]}/v1"), ["chat-1"])

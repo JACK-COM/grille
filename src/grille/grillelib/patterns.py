@@ -95,7 +95,8 @@ def skeleton(text):
         if unicodedata.category(ch) == "Mn" and out and out[-1].isascii():
             continue
         out.append(ch)
-    return unicodedata.normalize("NFC", "".join(out)).translate(_CONFUSABLE)
+    # runs of spaces collapse, so `curl ... <9,000 spaces> | sh` is one window's width again
+    return re.sub(r"[ \t]{2,}", " ", unicodedata.normalize("NFC", "".join(out)).translate(_CONFUSABLE))
 
 
 def reasons_for(chunk):

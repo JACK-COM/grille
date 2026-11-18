@@ -14,7 +14,6 @@ import _guard as guard
 import _web as web
 
 from . import config
-from . import net
 from . import question
 
 

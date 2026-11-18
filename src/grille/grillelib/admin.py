@@ -16,6 +16,7 @@ import urllib.request
 from pathlib import Path
 
 import _guard as guard
+import _web as web
 import _embed as embed
 import _settings as panoply
 
@@ -123,11 +124,11 @@ def _models_at(base, timeout=1.5):
     """The chat model names an OpenAI-compatible server lists, or None when nothing
     answers. A server lists its embedding models too, and one of those cannot relay."""
     try:
-        with net._opener().open(base.rstrip("/") + "/models", timeout=timeout) as r:
-            data = json.loads(r.read(1 << 20))
+        with web.open_url(base.rstrip("/") + "/models", timeout, follow=None) as r:
+            data = json.loads(web.read(r, 1 << 20, web.Deadline(timeout)))
         return [m["id"] for m in data.get("data", [])
                 if isinstance(m, dict) and m.get("id") and not _NOT_CHAT.search(m["id"])]
-    except (urllib.error.URLError, OSError, ValueError, AttributeError):
+    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
         return None
 
 

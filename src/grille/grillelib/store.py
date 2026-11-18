@@ -13,7 +13,7 @@ from pathlib import Path
 STORE_DAYS = 7           # a session's store outlives it by this much, then the next call sweeps it
 
 
-SESSION = re.compile(r"[\w-]{1,64}")
+SESSION = re.compile(r"[\w-]{1,64}", re.ASCII)
 SPAN_ID = re.compile(r"[0-9a-f]{8}|[0-9a-f]{12}")
 
 
@@ -43,8 +43,11 @@ def store_dir():
     d = _owned(root / sid)      # withheld spans are the most sensitive bytes the tool touches
     cutoff = time.time() - STORE_DAYS * 86400
     for old in root.iterdir():
-        if old.is_dir() and old != d and old.stat().st_mtime < cutoff:
-            shutil.rmtree(old, ignore_errors=True)
+        try:
+            if old.is_dir() and old != d and old.stat().st_mtime < cutoff:
+                shutil.rmtree(old, ignore_errors=True)
+        except OSError:
+            continue                    # another run swept it first
     return d
 
 

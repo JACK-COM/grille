@@ -45,7 +45,7 @@ def acquire(path):
             pages = pages[:-1]
         empty = [i + 1 for i, t in enumerate(pages) if len(t.strip()) < EMPTY_PAGE]
         return pages, "pdf", empty
-    raw = p.read_text(errors="replace")
+    raw = p.read_text(encoding="utf-8", errors="replace")
     if suffix in (".html", ".htm"):
         t = htmltext._Text()
         t.feed(raw)
