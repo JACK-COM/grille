@@ -18,7 +18,6 @@ from . import pdf
 
 # A line the page starts with `[grille` would pass for Grille's own placeholder: the scorer
 # strips those before scoring, and a reader takes them for Grille's word.
-_INVISIBLE_LEAD = "[\\s\u200b-\u200f\u2060-\u2064\ufeff\u00ad\u180e]*"
 _FRAMING = re.compile(r"(?i)()\[(?=[\s\u200b-\u200f\u2060-\u2064\ufeff]*grille\b)")
 def _unpose(page):
     """The page with every line that could pass for Grille's own marked as the page's: a
@@ -27,15 +26,22 @@ def _unpose(page):
     made spaces (`\x01## chunk 7` printed as ` ## chunk 7`)."""
     page = htmltext.printable(page)
     out, at = [], 0
-    for m in re.finditer(r"\[", page):
+    for m in re.finditer("[\\[\uff3b]", page):
         if patterns.skeleton(page[m.end():m.end() + 16]).lower().lstrip(" \u00ad\ufe0f\ufe0e").startswith("grille"):
             out.append(page[at:m.start()] + "[the page writes: ")
             at = m.end()
     page = "".join(out) + page[at:]
-    return _POSE.sub(r"\1(the page writes) ", page)
+    lines = []
+    for line in page.split("\n"):
+        lead = len(line) - len(line.lstrip(_LEAD_CHARS))
+        if _POSE.match(patterns.skeleton(line[lead:])):
+            line = line[:lead] + "(the page writes) " + line[lead:]
+        lines.append(line)
+    return "\n".join(lines)
 
 
-_POSE = re.compile(r"(?im)^(" + _INVISIBLE_LEAD + r")(?=#{1,2}\s|---\s*$|(?:page|chunk)\s+\d+\s+was ranked|question(?:\s+\d+)?:|score:|relayed by\b|relay failed\b)")
+_LEAD_CHARS = " \t\u200b\u200c\u200d\u200e\u200f\u2060\u2061\u2062\u2063\u2064\ufeff\u00ad\u180e"
+_POSE = re.compile(r"(?i)(?=#{1,2}\s|---\s*$|(?:page|chunk)\s+\d+\s+was ranked|question(?:\s+\d+)?:|score:|relayed by\b|relay failed\b)")
 EMPTY_PAGE = 20          # fewer stripped chars than this and the page has no text layer
 
 TOOL_TIMEOUT = 60       # seconds pdftotext or pdftoppm may run on one file or page

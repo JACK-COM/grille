@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from typing import List, NamedTuple, Optional, Tuple
 
+import _guard as guard
+
 from . import htmltext
 from . import patterns
 from .chunk import CHUNK_TEXT  # noqa: F401  (kept beside the other sizes a reader looks for)
@@ -18,9 +20,10 @@ from .question import _tags, split_prompt, topic_parts
 from .rank import MIN_SCORE_NOTE, PAGES_DEFAULT, interleave, rank_each
 from .relay import relay, verbatim
 from .score import score_pages
-from .screen import hold, screen
+from .screen import JOIN_UNITS, hold, screen
 
-RELAY_FAILED = 5        # decipher's exit code when no relay answered: screened, never deciphered
+RELAY_FAILED = 5
+BOUNDARY = 600          # characters either side of a page break matched together        # decipher's exit code when no relay answered: screened, never deciphered
 
 
 class Page(NamedTuple):
@@ -95,6 +98,15 @@ def sift(file: str, questions: List[str], store: Path, *, pages: int = PAGES_DEF
         body, held = screen(doc[i].rstrip(), file, i + 1, store)
         withheld += len(held)
         screened.append(Page(i + 1, s, body, qs, None))
+    for k in range(len(screened) - 1):
+        a, b = screened[k], screened[k + 1]
+        tail, head_ = a.body[-BOUNDARY:], b.body[:BOUNDARY]
+        if not (patterns.reasons_for(tail) or patterns.reasons_for(head_)) and patterns.reasons_for(tail + " " + head_):
+            for j, p in ((k, a), (k + 1, b)):
+                line, held = hold(p.body, ["split across a page boundary: " + "; ".join(patterns.reasons_for(tail + " " + head_))],
+                                  file, p.n, store)
+                screened[j] = p._replace(body=line)
+                withheld += 1
     whole: List[Tuple[int, str]] = []
     score_note = None
     if score or strict:
@@ -127,8 +139,9 @@ def head(r: SiftResult) -> str:
                  + (", the questions taking turns" if many else ""))
     lines += r.notes
     if r.score_note:
-        why = patterns.reasons_for(r.score_note)
-        lines.append(f"score: {'[a scorer message withheld: ' + '; '.join(why) + ']' if why else r.score_note}")
+        note = guard.relay(r.score_note, 300)              # one line: a newline in it could forge a heading
+        why = patterns.reasons_for(note)
+        lines.append(f"score: {'[a scorer message withheld: ' + '; '.join(why) + ']' if why else note}")
     return "\n".join(lines)
 
 
@@ -171,7 +184,9 @@ def decipher(r: SiftResult, cfg: dict, file: str, deadline=None) -> Tuple[str, i
     pages = body(r)
     answer, who = relay(r.questions, head(r) + "\n" + pages, cfg, deadline)
     if answer is None:
-        return f"relay failed ({who}); the screened pages follow whole\n\n{render(r)}", RELAY_FAILED
+        why = guard.relay(who, 300)
+        why = "[the relay's message withheld: " + "; ".join(patterns.reasons_for(why)) + "]" if patterns.reasons_for(why) else why
+        return f"relay failed ({why}); the screened pages follow whole\n\n{render(r)}", RELAY_FAILED
     out = [head(r).rstrip()]
     if answer.strip() == "NOT FOUND":
         out.append(f"\n{who}: NOT FOUND in the screened pages; `grille sift {file} --ask ...` shows them")
@@ -179,6 +194,10 @@ def decipher(r: SiftResult, cfg: dict, file: str, deadline=None) -> Tuple[str, i
     kept, dropped = verbatim(answer, pages)
     # the relay can stitch lines of several screened units into one; a kept line is screened again
     flagged = [k for k in kept if patterns.reasons_for(k)]
+    for i in range(len(kept)):                      # and joined, as the screen joins its units
+        run = kept[i:i + JOIN_UNITS]
+        if len(run) > 1 and patterns.reasons_for(" ".join(run)):
+            flagged += [k for k in run if k not in flagged]
     kept, dropped = [k for k in kept if k not in flagged], dropped + flagged
     out.append(f"relayed by {who}; {len(kept)} line{'s' if len(kept) != 1 else ''} verified verbatim "
                f"against the screened pages\n")

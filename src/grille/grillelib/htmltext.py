@@ -33,7 +33,7 @@ LINK_WORDS = 12          # an href decoding to this many words is prose; a %20 f
 # screen still reads that by content. The sr-only pattern (a 1px box clipped to nothing)
 # is caught too, though a screen reader voices it: text a sighted reader never sees is
 # where a planted line lives, and withholding a "Skip to content" costs one line.
-_TERMINAL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]")
+_TERMINAL = re.compile("[\x00-\x08\x0b-\x1f\x7f-\x9f\u2028\u2029\u202a-\u202e\u2066-\u2069]")
 
 
 def printable(text):

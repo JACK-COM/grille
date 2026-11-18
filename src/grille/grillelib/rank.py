@@ -5,8 +5,10 @@ import http.client
 import re
 
 import _embed as embed
+import _guard as guard
 
 from . import config
+from . import patterns
 from . import vcache
 
 
@@ -84,7 +86,8 @@ def rank_each(questions, pages, deadline=None):
     except (RuntimeError, OSError, TimeoutError, ValueError, TypeError, KeyError, http.client.HTTPException) as e:
         # no embedder, a reply that is not one, or no time left: degrade, and say so
         bests = [{i: _overlap(q, p) for i, p in enumerate(pages) if p.strip()} for q in questions]
-        method = f"word overlap (no embedder: {str(e).splitlines()[0][:80]})"
+        reason = guard.relay((str(e).splitlines() or [""])[0], 80)
+        method = f"word overlap (no embedder: {'its message withheld' if patterns.reasons_for(reason) else reason})"
     flat = {}
     orders, lifted = [], False
     for q, b in zip(questions, bests):

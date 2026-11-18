@@ -285,9 +285,11 @@ def _configure_embedder(a):
         gated.append(f"send the raw text of every page Grille ranks to {config.host(changes['ollama_host'])}")
     if "venv" in changes:
         gated.append(f"run the Python packages in {changes['venv']} inside Grille")
-    now_on = config.apply_embed().get("autostart", (True, ""))[0]
-    # on by a value, or by clearing one (`default`, --reset) to a fallback that is on
-    if not now_on and (changes.get("autostart") is True or "autostart" in clearing or a.reset):
+    now = config.apply_embed()
+    # autostart fires only for a host on this machine: what runs is (autostart and loopback host)
+    now_on = now.get("autostart", (True, ""))[0] and guard.is_loopback(str(now.get("ollama_host", ("", ""))[0]))
+    touched = {"autostart", "ollama_host"} & (set(changes) | clearing) or a.reset
+    if not now_on and touched and changes.get("autostart") is not False:
         gated.append("start `ollama serve` whenever the embedder's port is closed")
     confirmed(a, gated)
     if changes or clearing or a.reset:

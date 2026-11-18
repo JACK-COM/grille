@@ -71,7 +71,7 @@ def cmd_fetch(a):
         # the next fetch of that address is the caller's, so it passes their own permission
         # check; the address is the page's to write, so it is screened like the page
         where = guard.relay(e.url, 300)
-        why = patterns.reasons_for(guard.relay(urllib.parse.unquote(e.url), 300))
+        why = patterns.reasons_for(guard.relay(_decoded(e.url), 300))
         print(f"# grille fetch: {guard.relay(a.url, 300)}\n")
         if why:
             line, _ = screen.hold(where, why, a.url, 0, store)
@@ -114,10 +114,15 @@ def cmd_fetch(a):
     return code
 
 
+def _decoded(s):
+    """A URL as it reads: `+` a space, and decoded twice, so `%2520` hides no space either."""
+    return urllib.parse.unquote_plus(urllib.parse.unquote_plus(s))
+
+
 def server_text(s, what):
     """A string a server wrote (a URL, a reason phrase, a content type), made printable and
     screened as the page is, decoded first so `%20` hides no space: flagged, it is named, not shown."""
-    plain = guard.relay(urllib.parse.unquote(str(s)), 300)
+    plain = guard.relay(_decoded(str(s)), 300)
     why = patterns.reasons_for(plain)
     return f"[{what} withheld: {'; '.join(why)}]" if why else guard.relay(s, 300)
 
