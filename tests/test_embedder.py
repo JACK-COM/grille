@@ -25,8 +25,10 @@ class EmbedderTest(GrilleCase):
             stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
             cfg = panoply.path()
             cfg.parent.mkdir(parents=True, exist_ok=True)
-            _write_manifest({"embed": {"venv": "/old/v", "model": "", "colour": "x"}})
-            self.assertEqual(apply_embed()["venv"], (Path("/old/v"), "grille.json"), "an older grille.json venv was ignored")
+            _write_manifest({"embed": {"venv": "/old/v", "model": "m-old", "colour": "x"}})
+            self.assertEqual(apply_embed()["model"], ("m-old", "grille.json"), "an older grille.json model was ignored")
+            # a venv runs code on import, so only a person names one: the old file's is not read
+            self.assertNotEqual(apply_embed()["venv"][1], "grille.json", "an older grille.json venv took effect")
             self.assertTrue(legacy_note() and not manifest_findings(), manifest_findings())
             # an unreadable shared file: nothing moves, nothing is overwritten
             cfg.write_text('{"embed": {"model": "x",}}')
@@ -45,10 +47,10 @@ class EmbedderTest(GrilleCase):
                 main(["migrate"])
             self.assertTrue(out.getvalue().endswith("migrate: nothing pending\n"), "a second migrate did work")
             main(["configure", "embedder", "--model", "m-all", "--global"])
-            self.assertEqual(panoply.load()[0], {"embed": {"model": "m-all"}, "grille": {"embed": {"venv": "/old/v"}}}, panoply.load())
+            self.assertEqual(panoply.load()[0], {"embed": {"model": "m-all"}, "grille": {"embed": {"model": "m-old"}}}, panoply.load())
             main(["configure", "embedder", "--model", "m-own", "--no-autostart"])
             got = apply_embed()
-            self.assertTrue(got["model"] == ("m-own", "grille") and got["venv"] == (Path("/old/v"), "grille"), got)
+            self.assertTrue(got["model"] == ("m-own", "grille") and got["venv"][1] != "grille", got)
             main(["configure", "embedder", "--autostart", "default"])
             self.assertNotIn("autostart", panoply.load()[0]["grille"]["embed"], "--autostart default did not clear it")
             os.environ["PANOPLY_VENV"] = "/env/v"

@@ -159,6 +159,7 @@ Every window of every page is one scorer call, and the count is printed before t
     h.add_argument("topic", choices=["install"])
     h.set_defaults(fn=lambda a: print((help_text.HERE / "INSTALL-grille.md").read_text(), end="") or 0)
     a = p.parse_args(argv)
+    a.argv = list(sys.argv[1:] if argv is None else argv)   # the line a person is asked to run
     if not a.cmd:
         p.print_help()
         return 2

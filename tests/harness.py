@@ -73,6 +73,12 @@ class GrilleCase(unittest.TestCase):
     the way out, failed or not."""
 
     def setUp(self):
+        # A person at a terminal says yes, so a case can set a scorer command, a relay or a
+        # venv; the gate itself is test_gates.py's, against the real check.
+        import _guard
+        self.person = mock.patch.object(_guard, "person_confirms", lambda *a, **k: True)
+        self.person.start()
+        self.addCleanup(self.person.stop)
         self.d = Path(tempfile.mkdtemp(prefix="grille-test-"))
         self.addCleanup(shutil.rmtree, self.d, True)
         self.doc = DOC

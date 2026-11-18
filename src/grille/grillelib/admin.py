@@ -14,6 +14,8 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+import _guard as guard
 import _embed as embed
 import _settings as panoply
 
@@ -155,6 +157,32 @@ CONFIGURE_FLAGS = {
 _FLAG_OFF = {"detect": False, "think": False, "off": False, "shared": False, "reset": False}
 
 
+def confirmed(a, gated):
+    """True when nothing is gated, or a person at a terminal says yes to all of it; otherwise
+    exit, having written nothing, with the line for the person to run themselves."""
+    if not gated or guard.person_confirms("Write this setting? Grille will then:", gated, "write it"):
+        return True
+    sys.exit("grille: not written: a setting that runs a program, sends text off this machine or sends a key is "
+             "set by a person at a terminal. Run it yourself:\n  "
+             + guard.relay("grille " + shlex.join(a.argv), 2000))
+
+
+def relay_gates(new, old):
+    """What a relay setting switches on that a person must confirm."""
+    out, url = [], new.get("url") or ""
+    if url and not guard.is_loopback(url):
+        if not url.startswith("https://"):
+            sys.exit("grille: a relay off this machine is reached over https")
+        if url != old.get("url"):
+            out.append(f"send every page `fetch --decipher` returns to {config.host(url)}")
+    if new.get("api_key_env") and (new.get("api_key_env") != old.get("api_key_env")
+                                   or old.get("key_host") != config.host(url)):
+        out.append(f"send the key in {new['api_key_env']} to {config.host(url)}")
+    if new.get("fallback") and new.get("fallback") != old.get("fallback"):
+        out.append(f"run  {shlex.join(new['fallback'])}  whenever the relay model does not answer")
+    return out
+
+
 def cmd_configure(a):
     foreign = [k for ks in CONFIGURE_FLAGS.values() for k in dict.fromkeys(ks)
                if k not in CONFIGURE_FLAGS[a.what] and getattr(a, k) not in (None, _FLAG_OFF.get(k))]
@@ -197,6 +225,10 @@ def cmd_configure(a):
                 r["fallback"] = shlex.split(a.fallback)
                 if not r["fallback"]:
                     sys.exit("grille: --fallback is empty")
+            old = m.get("relay") if isinstance(m.get("relay"), dict) else {}
+            confirmed(a, relay_gates(r, old))
+            if r.get("api_key_env") and r.get("url"):
+                r["key_host"] = config.host(r["url"])
             if a.url and (a.api or "openai") == "openai":
                 listed = _models_at(a.url)
                 if listed is None:
@@ -214,6 +246,8 @@ def cmd_configure(a):
                 if not cmd:
                     sys.exit("grille: --command is empty")
                 if cmd != s.get("command"):
+                    if cmd != config.DEFAULT_SCORER:
+                        confirmed(a, [f"run  {shlex.join(cmd)}  on every page `--score` or `fetch --decipher` reads"])
                     # a threshold belongs to the scorer that earned it
                     s = {"command": cmd}
                     if a.withhold is None and cmd != config.DEFAULT_SCORER:
@@ -244,6 +278,13 @@ def _configure_embedder(a):
         changes["venv"] = os.path.abspath(venv)
     if "ollama_host" in changes and not changes["ollama_host"].startswith(("http://", "https://")):
         sys.exit(f"grille: --ollama-host needs a scheme, e.g. http://{changes['ollama_host']}")
+    gated = []
+    if "ollama_host" in changes and not guard.is_loopback(changes["ollama_host"]):
+        # the embedder reads raw pages, before the screen: injections and local files included
+        gated.append(f"send the raw text of every page Grille ranks to {config.host(changes['ollama_host'])}")
+    if "venv" in changes:
+        gated.append(f"run the Python packages in {changes['venv']} inside Grille")
+    confirmed(a, gated)
     if changes or clearing or a.reset:
         problems = []
 

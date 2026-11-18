@@ -10,6 +10,9 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import _guard as guard
+import _web as web
+
 from . import config
 from . import net
 from . import question
@@ -44,9 +47,10 @@ _LOOKALIKE = str.maketrans({"\u2018": "'", "\u2019": "'", "\u201c": '"', "\u201d
 RELAY_CAP = 1 << 20      # a relay reply past this is a runaway, not an answer
 
 
-def _relay_model(cfg, msg):
-    """One call to the configured chat model -> its text. Raises ValueError, OSError or
-    URLError with a readable reason."""
+def _relay_model(cfg, msg, deadline=None):
+    """One call to the configured chat model -> its text. Raises ValueError, OSError,
+    TimeoutError or URLError with a readable reason. The key goes only to the host a person
+    confirmed it for (`key_host`), over https off this machine, and no redirect is followed."""
     api = cfg.get("api") or "openai"
     if api not in ("openai", "ollama"):
         raise ValueError(f"relay.api {api!r} is neither openai nor ollama")
@@ -55,6 +59,12 @@ def _relay_model(cfg, msg):
         key = os.environ.get(cfg["api_key_env"])
         if not key:
             raise ValueError(f"{cfg['api_key_env']} is not set")
+        host = config.host(cfg["url"])
+        if cfg.get("key_host") != host:
+            raise ValueError(f"the relay key was confirmed for {cfg.get('key_host') or 'no host'}, not {host}; "
+                             f"a person confirms it with  grille configure relay --url {guard.relay(cfg['url'], 200)}")
+        if not guard.is_loopback(cfg["url"]) and not cfg["url"].startswith("https://"):
+            raise ValueError("the relay key would cross the network readable: its url is not https")
         headers["Authorization"] = f"Bearer {key}"
     messages = [{"role": "system", "content": RELAY_SYSTEM}, {"role": "user", "content": msg}]
     base = cfg["url"].rstrip("/")
@@ -69,16 +79,18 @@ def _relay_model(cfg, msg):
         body = {"model": cfg["model"], "stream": False, "temperature": 0, "messages": messages}
         url = base + "/chat/completions"
     req = urllib.request.Request(url, data=json.dumps(body).encode(), headers=headers)
-    with net._opener().open(req, timeout=config.RELAY_TIMEOUT) as r:
-        raw = r.read(RELAY_CAP + 1)
-    if len(raw) > RELAY_CAP:
-        raise ValueError(f"reply over the {RELAY_CAP} byte cap")
-    reply = json.loads(raw)
+    deadline = deadline or web.Deadline(config.RELAY_TIMEOUT)
+    with web.open_url(req, config.RELAY_TIMEOUT, deadline=deadline, follow=None) as r:
+        raw = web.read(r, RELAY_CAP, deadline)
+    try:
+        reply = json.loads(raw)
+    except RecursionError:
+        raise ValueError("reply nests too deep to read") from None
     try:
         m = reply["message"] if api == "ollama" else reply["choices"][0]["message"]
         return (m.get("content") or "").strip()
     except (KeyError, IndexError, TypeError, AttributeError):
-        raise ValueError(f"reply is not a {api} chat response: {raw[:80]!r}")
+        raise ValueError(f"reply is not a {api} chat response: {guard.relay(raw[:80], 100)}")
 
 
 def relay(questions, sifted, cfg):
@@ -99,8 +111,8 @@ def relay(questions, sifted, cfg):
             if text:
                 return text, cfg["model"]
             errs.append(f"{cfg['model']}: empty reply")
-        except (urllib.error.URLError, OSError, ValueError) as e:
-            errs.append(f"{cfg['model']}: {getattr(e, 'reason', None) or e}")
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError) as e:
+            errs.append(f"{guard.relay(cfg['model'], 80)}: {guard.relay(getattr(e, 'reason', None) or e, 200)}")
     fb = cfg.get("fallback")
     if fb:
         argv = [x.replace("{system}", RELAY_SYSTEM) for x in fb]
@@ -109,7 +121,7 @@ def relay(questions, sifted, cfg):
             r = subprocess.run(argv, input=msg, capture_output=True, text=True, timeout=config.RELAY_TIMEOUT)
             if r.returncode == 0 and r.stdout.strip():
                 return r.stdout.strip(), who
-            errs.append(f"{who}: exit {r.returncode} {r.stderr.strip()[:120]}")
+            errs.append(f"{guard.relay(who, 60)}: exit {r.returncode} {guard.relay(r.stderr.strip(), 120)}")
         except (OSError, subprocess.TimeoutExpired) as e:
             errs.append(f"{who}: {e}")
     return None, "; ".join(errs)

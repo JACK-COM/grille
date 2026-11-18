@@ -1,4 +1,4 @@
-# GENERATED from panoply-lib/web.py (uncommitted) by sync.sh: edit the source and rerun sync.sh, never this copy.
+# GENERATED from panoply-lib/web.py (2de33ea+uncommitted) by sync.sh: edit the source and rerun sync.sh, never this copy.
 """web: the one HTTP client the Panoply's pieces use, bounded so a hostile or slow server
 cannot hold a piece, redirect it somewhere it was not sent, or walk it into this machine's
 own network.
@@ -99,6 +99,13 @@ def origin(url: str) -> Tuple[str, str, Optional[int]]:
     return u.scheme, (u.hostname or "").lower(), port
 
 
+def same_site(old: str, new: str) -> bool:
+    """The same origin, or the same host moving from http to https on the default ports:
+    an upgrade, which carries nothing anywhere new."""
+    a, b = origin(old), origin(new)
+    return a == b or (a[1] == b[1] and (a[0], a[2], b[0], b[2]) == ("http", 80, "https", 443))
+
+
 class _Redirects(urllib.request.HTTPRedirectHandler):
     def __init__(self, follow: Optional[str], hops: int):
         self.follow = follow
@@ -108,7 +115,7 @@ class _Redirects(urllib.request.HTTPRedirectHandler):
         newurl = urllib.parse.urljoin(req.full_url, newurl)
         if self.follow not in ("same-origin", "any"):
             raise Redirected(newurl, code, "this request follows no redirect")
-        if self.follow == "same-origin" and origin(newurl) != origin(req.full_url):
+        if self.follow == "same-origin" and not same_site(req.full_url, newurl):
             raise Redirected(newurl, code, "another origin; fetch that URL itself")
         new = super().redirect_request(req, fp, code, msg, headers, newurl)
         if new is not None and origin(newurl) != origin(req.full_url):
@@ -177,10 +184,10 @@ class _GuardHTTPS(urllib.request.HTTPSHandler):
 
 
 def opener(follow: Optional[str] = None, guard_private: bool = False, hops: int = 8,
-           *handlers: Any) -> urllib.request.OpenerDirector:
-    """An opener with environment proxies, the redirect policy, and, with `guard_private`,
-    connections only to public addresses. `handlers` are added after."""
-    chain: list = [urllib.request.ProxyHandler(urllib.request.getproxies_environment()),
+           *handlers: Any, direct: bool = False) -> urllib.request.OpenerDirector:
+    """An opener with environment proxies (none when `direct`), the redirect policy, and,
+    with `guard_private`, connections only to public addresses. `handlers` are added after."""
+    chain: list = [urllib.request.ProxyHandler({} if direct else urllib.request.getproxies_environment()),
                    _Redirects(follow, hops)]
     if guard_private:
         chain += [_GuardHTTP(), _GuardHTTPS()]
@@ -193,7 +200,10 @@ def open_url(req: Any, timeout: float, deadline: Optional[Deadline] = None, foll
     t = deadline.cap(timeout) if deadline else timeout
     if deadline:
         deadline.check("the request")
-    return opener(follow, guard_private, hops).open(req, timeout=t)
+    url = req.full_url if isinstance(req, urllib.request.Request) else str(req)
+    # a loopback host is reached directly: a proxy the environment names would carry this
+    # machine's own traffic, and any key on it, to another one
+    return opener(follow, guard_private, hops, direct=guard.is_loopback(url)).open(req, timeout=t)
 
 
 def read(resp: Any, cap: int, deadline: Optional[Deadline] = None, chunk: int = 65536) -> bytes:
@@ -247,7 +257,7 @@ def _selftest() -> None:
     port = srv.server_address[1]
     threading.Thread(target=srv.serve_forever, daemon=True).start()
     base = f"http://127.0.0.1:{port}"
-    with mock.patch.dict(os.environ, {"PANOPLY_DEADLINE": ""}):
+    with mock.patch.dict(os.environ, {"PANOPLY_DEADLINE": "", "http_proxy": "http://127.0.0.1:9", "HTTP_PROXY": "http://127.0.0.1:9"}):
         req = urllib.request.Request(base + "/same", headers={"Authorization": "Bearer s"})
         assert read(open_url(req, 5, follow="same-origin"), 100) == b"xxx"
         assert seen[-1] == ("/end", "Bearer s"), seen   # same origin: the same server
@@ -279,6 +289,9 @@ def _selftest() -> None:
             pass
         assert origin("https://H.example/x") == origin("https://h.example:443/y")
         assert origin("http://h.example/") != origin("https://h.example/")
+        assert same_site("http://h.example/a", "https://h.example/b")
+        assert not same_site("https://h.example/a", "http://h.example/b")      # never down
+        assert not same_site("http://h.example/a", "https://h.example:8443/b")
     with mock.patch.dict(os.environ, {"PANOPLY_DEADLINE": str(time.time() + 5)}):
         assert 4 < (Deadline(60).left() or 0) <= 5 and 4 < (Deadline().left() or 0) <= 5
     for raw in (str(time.time() - 5), str(time.time() + 5000), "soon"):

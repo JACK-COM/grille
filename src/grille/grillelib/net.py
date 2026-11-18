@@ -8,6 +8,9 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import _guard as guard
+import _web as web
+
 
 FETCH_CAP = 64 * 1024 * 1024   # the largest manual WebFetch has saved here is 10 MB
 
@@ -24,63 +27,36 @@ REDIRECT_CAP = 8
 USER_AGENT = "grille/1 (document sieve; python-urllib)"
 
 
-class _Redirects(urllib.request.HTTPRedirectHandler):
-    """Counts hops, refuses a hop off http (urllib itself already refuses file: and the
-    like; this catches ftp:), stops at REDIRECT_CAP, and pins the method across hops as a
-    belt beside urllib's own HEAD-keeping. `timeout` is per hop, so a chain can take
-    REDIRECT_CAP times it."""
-
-    def __init__(self):
-        super().__init__()
-        self.count = 0
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if urllib.parse.urlsplit(newurl).scheme not in ("http", "https"):
-            raise urllib.error.URLError(f"redirect to a non-http address refused: {newurl}")
-        self.count += 1
-        if self.count > REDIRECT_CAP:
-            raise urllib.error.URLError(f"more than {REDIRECT_CAP} redirects")
-        new = super().redirect_request(req, fp, code, msg, headers, newurl)
-        if new is not None:
-            new.method = req.get_method()
-        return new
+Redirected = web.Redirected          # another origin: reported, never followed
+Inward = web.Inward                  # a hop from a public origin into a private address
 
 
-def _opener(*handlers):
-    """urllib's opener with proxies from the environment only (HTTP_PROXY, HTTPS_PROXY,
-    NO_PROXY). The default also asks macOS's SystemConfiguration, and after that lookup on a
-    plain-http fetch every child this process starts died of SIGSEGV before exec: pdftotext
-    on the fetched PDF, the scorer, a fallback command. Measured under Python 3.9 and 3.14."""
-    return urllib.request.build_opener(urllib.request.ProxyHandler(urllib.request.getproxies_environment()),
-                                       *handlers)
-
-
-def _open(url, method, timeout):
-    """-> (response, redirect handler). Raises ValueError off http, URLError on the wire,
-    HTTPError on a 4xx/5xx (the response is on the error)."""
+def _open(url, method, timeout, deadline=None, follow="same-origin"):
+    """-> the response. Raises ValueError off http, Redirected for a hop to another origin
+    (follow="same-origin"), Inward for one from a public origin into this machine's own or a
+    private network, URLError on the wire, HTTPError on a 4xx/5xx."""
     if urllib.parse.urlsplit(url).scheme not in ("http", "https"):
-        raise ValueError(f"only http and https are fetched: {url}")
-    rh = _Redirects()
-    req = urllib.request.Request(url, method=method,
-                                 headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
-    return _opener(rh).open(req, timeout=timeout), rh
+        raise ValueError(f"only http and https are fetched: {guard.relay(url, 200)}")
+    req = urllib.request.Request(url, method=method, headers={"User-Agent": USER_AGENT, "Accept": "*/*"})
+    # a page the agent asked for by name may be local; a hop it did not ask for may not
+    public = guard.public_address(urllib.parse.urlsplit(url).hostname or "")
+    return web.open_url(req, timeout, deadline=deadline, follow=follow, guard_private=public, hops=REDIRECT_CAP)
 
 
-def fetch(url, cap=FETCH_CAP, timeout=FETCH_TIMEOUT):
-    """-> (data, final_url, content_type, charset, redirects). Refuses a body over `cap`
-    bytes, by Content-Length where the server sends one and by count where it does not."""
-    resp, rh = _open(url, "GET", timeout)
+def fetch(url, cap=FETCH_CAP, timeout=FETCH_TIMEOUT, deadline=None):
+    """-> (data, final_url, content_type, charset, redirected). Refuses a body over `cap`
+    bytes, by Content-Length where the server sends one and by count where it does not, and
+    a fetch past `deadline` (else `timeout` over the whole fetch, every hop and read)."""
+    deadline = deadline or web.Deadline(timeout)
+    resp = _open(url, "GET", timeout, deadline)
     with resp:
         length = resp.headers.get("Content-Length", "")
         if length.isdigit() and int(length) > cap:
             raise ValueError(f"{int(length)} bytes is over the {cap} byte cap")
-        buf = bytearray()
-        while chunk := resp.read(1 << 16):
-            buf += chunk
-            if len(buf) > cap:
-                raise ValueError(f"body is over the {cap} byte cap")
-        return (bytes(buf), resp.geturl(), resp.headers.get_content_type(),
-                resp.headers.get_content_charset(), rh.count)
+        data = web.read(resp, cap, deadline)
+        final = resp.geturl()
+        return (data, final, resp.headers.get_content_type(), resp.headers.get_content_charset(),
+                int(final != url))
 
 
 def _kind_of(data, ctype):
@@ -124,7 +100,7 @@ def save_fetched(url, data, ctype, charset, store):
     if kind == "pdf":
         path.write_bytes(data)
     else:
-        path.write_text(_decode(data, charset))
+        path.write_text(_decode(data, charset), encoding="utf-8")
     return path, kind
 
 
@@ -146,22 +122,23 @@ def verify(url, timeout=VERIFY_TIMEOUT):
            "dropped_path": False, "error": None}
     for method in ("HEAD", "GET"):
         try:
-            resp, rh = _open(url, method, timeout)
+            # verify reads no body, so it follows a hop to another origin, never into a private address
+            resp = _open(url, method, timeout, web.Deadline(timeout), follow="any")
             with resp:
                 row.update(status=resp.status, final=resp.geturl(),
-                           type=resp.headers.get_content_type(), redirects=rh.count,
+                           type=resp.headers.get_content_type(), redirects=int(resp.geturl() != url),
                            dropped_path=dropped_path(url, resp.geturl()))
             return row
         except urllib.error.HTTPError as e:
             if 300 <= e.code < 400:   # a followed redirect never lands here: this one was refused
-                row["error"] = f"HTTP {e.code}: {e.reason}"
+                row["error"] = f"HTTP {e.code}: {guard.relay(e.reason, 120)}"
                 return row
             if method == "HEAD":
                 continue          # many hosts refuse HEAD and serve GET; GET is the ground truth
             row.update(status=e.code, final=e.geturl(), type=e.headers.get_content_type(),
                        dropped_path=dropped_path(url, e.geturl()))
             return row
-        except (urllib.error.URLError, ValueError, OSError) as e:
-            row["error"] = str(getattr(e, "reason", None) or e)
+        except (urllib.error.URLError, ValueError, OSError, TimeoutError) as e:
+            row["error"] = guard.relay(getattr(e, "reason", None) or e, 300)
             return row
     return row

@@ -8,10 +8,13 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import _guard as guard
+
 from . import config
 from . import documents
 from . import htmltext
 from . import net
+from . import patterns
 from . import pdf
 from . import pipeline
 from . import screen
@@ -58,18 +61,34 @@ def cmd_fetch(a):
     store = spans.store_dir()
     try:
         data, final, ctype, charset, hops = net.fetch(a.url)
+    except net.Redirected as e:
+        # the next fetch of that address is the caller's, so it passes their own permission
+        # check; the address is the page's to write, so it is screened like the page
+        where = guard.relay(e.url, 300)
+        why = patterns.reasons_for(where)
+        print(f"# grille fetch: {guard.relay(a.url, 300)}\n")
+        if why:
+            line, _ = screen.hold(where, why, a.url, 0, store)
+            print(f"HTTP {e.code} redirects to another origin, whose address is withheld: {line}")
+        else:
+            print(f"HTTP {e.code} redirects to another origin: {where}\nFetch that URL itself to read it.")
+        return 0
+    except net.Inward:
+        sys.exit("grille: fetch failed: a redirect into a private address was refused")
     except urllib.error.HTTPError as e:
-        sys.exit(f"grille: fetch failed: HTTP {e.code} {e.reason} for {e.geturl()}")
+        sys.exit(f"grille: fetch failed: HTTP {e.code} {guard.relay(e.reason, 80)} for {guard.relay(e.geturl(), 300)}")
+    except TimeoutError:
+        sys.exit("grille: fetch failed: the server ran past the time allowed")
     except (urllib.error.URLError, ValueError, OSError) as e:
-        sys.exit(f"grille: fetch failed: {getattr(e, 'reason', None) or e}")
+        sys.exit(f"grille: fetch failed: {guard.relay(getattr(e, 'reason', None) or e, 300)}")
     try:
         path, kind = net.save_fetched(a.url, data, ctype, charset, store)
     except OSError as e:
         sys.exit(f"grille: could not save the response: {e}")
-    print(f"# grille fetch: {a.url}\n")
-    print(f"{len(data)} bytes, {ctype}, read as {kind}"
-          + (f", {hops} redirect{'s' if hops != 1 else ''} to {final}" if hops else "")
-          + f"  \nsaved {path}")
+    print(f"# grille fetch: {guard.relay(a.url, 300)}\n")
+    print(f"{len(data)} bytes, {guard.relay(ctype, 80)}, read as {kind}"
+          + (f", redirected within the site to {guard.relay(final, 300)}" if hops else "")
+          + "  \nsaved in this session's store")
     if net.dropped_path(a.url, final):
         print(f"warning: {net.DROPPED}")
     if kind == "html":

@@ -61,6 +61,8 @@ MANIFEST_SCHEMA = {
             "api": {"type": "string", "description": "openai (default: LM Studio, llama.cpp, vLLM, ollama's /v1, "
                     "hosted APIs) or ollama (its /api/chat)."},
             "api_key_env": {"type": "string", "description": "Environment variable holding a bearer key, for a hosted API."},
+            "key_host": {"type": "string", "description": "host:port the key may be sent to, written by "
+                         "`grille configure relay` when a person confirms it; any other host gets no key."},
             "think": {"type": "boolean", "description": "ollama API only: send think, for a reasoning model."},
             "fallback": {**_ARGV, "description": "A command tried when the model fails: the prompt on stdin, "
                          "the answer on stdout; `{system}` in an argument becomes the system prompt."}}},
@@ -125,7 +127,8 @@ def legacy_note():
 def _legacy_embed():
     """The usable settings of grille.json's embed section from Grille 0.2, while it remains, else None."""
     e = _manifest().get("embed")
-    return {k: v for k, v in e.items() if k in embed.CONFIG_KEYS and embed.usable(k, e)} \
+    # never `venv`: a venv's .pth files run on import, so only a person names one (configure embedder --venv)
+    return {k: v for k, v in e.items() if k in embed.CONFIG_KEYS and k != "venv" and embed.usable(k, e)} \
         if isinstance(e, dict) else None
 
 
@@ -207,3 +210,14 @@ def relay_settings(m=None):
     if isinstance(r, dict) and ((r.get("url") and r.get("model")) or r.get("fallback")):
         return r
     return None
+
+
+def host(url):
+    """`host:port` of `url`, the port explicit: what a key is confirmed for."""
+    from urllib.parse import urlparse
+    u = urlparse(url)
+    try:
+        port = u.port or {"http": 80, "https": 443}.get(u.scheme, 0)
+    except ValueError:
+        port = 0
+    return f"{(u.hostname or '').lower()}:{port}"
