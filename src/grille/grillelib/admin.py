@@ -436,5 +436,5 @@ VERBS = (
     Verb("schema", "write the settings schema where an editor can be pointed at it", _schema, nag=False),
     Verb("uninstall", "remove what grille made; print what is left", cmd_uninstall, _uninstall_args, nag=False,
          epilog='examples:\n  grille uninstall --dry-run                   what removal would take, without taking it\n  grille uninstall --yes                       remove it; the shared venv goes only with the last piece using it\n'),
-    Verb("help", "print a guide", _guide, lambda h: h.add_argument("topic", choices=["install"]) and None, nag=False),
+    Verb("help", "print a guide", _guide, lambda h: h.add_argument("topic", choices=["install"]), nag=False),
 )

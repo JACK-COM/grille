@@ -77,7 +77,7 @@ def rank_each(questions, pages, deadline=None):
         qvs, dv = vecs[:len(questions)], embed.normalise(vecs[len(questions):])
         bests = []
         for qv in qvs:
-            best = {}
+            best: dict[int, float] = {}
             for i, s in zip(owner, embed.cosines(qv, dv).tolist()):
                 if s > best.get(i, -1.0):
                     best[i] = s
@@ -88,7 +88,7 @@ def rank_each(questions, pages, deadline=None):
         bests = [{i: _overlap(q, p) for i, p in enumerate(pages) if p.strip()} for q in questions]
         reason = guard.relay((str(e).splitlines() or [""])[0], 80)
         method = f"word overlap (no embedder: {'its message withheld' if patterns.reasons_for(reason) else reason})"
-    flat = {}
+    flat: dict[int, str] = {}           # page index -> its words, joined
     orders, lifted = [], False
     for q, b in zip(questions, bests):
         plain = sorted(b.items(), key=lambda kv: -kv[1])
@@ -130,7 +130,9 @@ def interleave(orders, budget):
     take turns, each claiming its best page not yet taken, so no one question's pages
     crowd out another's. A page a later question also ranks within the pages it would
     have claimed is tagged with that question too, rather than taken twice."""
-    taken, picks, cursor = {}, [], [0] * len(orders)
+    taken: dict[int, list] = {}         # page index -> its pick, [index, score, question numbers]
+    picks: list[list] = []
+    cursor = [0] * len(orders)
     while len(picks) < budget and any(c < len(o) for c, o in zip(cursor, orders)):
         for q, order in enumerate(orders):
             if len(picks) >= budget:

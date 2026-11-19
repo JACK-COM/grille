@@ -37,7 +37,7 @@ def _flag_spans(line):
 
 
 def _merge(spans):
-    merged = []                 # overlapping matches are one passage: no cut lands between them
+    merged: list[list[int]] = []    # overlapping matches are one passage: no cut lands between them
     for a, b in sorted(spans):
         if merged and a < merged[-1][1]:
             merged[-1][1] = max(merged[-1][1], b)

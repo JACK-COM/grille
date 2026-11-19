@@ -195,8 +195,8 @@ def _verify_args(p):
 VERBS = (
     Verb("sift", "return the pages that bear on a question, screened", cmd_sift, _sift_args),
     Verb("screen", "withhold agent-addressed passages from a whole document", cmd_screen,
-         lambda p: p.add_argument("file") and None),
-    Verb("show", "print a withheld span by id", cmd_show, lambda p: p.add_argument("id") and None),
+         lambda p: p.add_argument("file")),
+    Verb("show", "print a withheld span by id", cmd_show, lambda p: p.add_argument("id")),
     Verb("fetch", "get a URL and sift the response; no JavaScript", cmd_fetch, _fetch_args),
     Verb("verify", "status, final address, type and redirects per URL", cmd_verify, _verify_args),
 )

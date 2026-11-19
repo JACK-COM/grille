@@ -145,7 +145,8 @@ def acquire(path):
 
 
 def render_pages(pdf, numbers, store):
-    paths, failed = [], []
+    paths: list[str] = []
+    failed: list[int] = []
     if not shutil.which("pdftoppm"):
         return paths, "pdftoppm not found; brew install poppler"
     for n in numbers:

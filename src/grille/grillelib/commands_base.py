@@ -9,6 +9,6 @@ class Verb(NamedTuple):
     name: str
     help: str
     run: Callable[[argparse.Namespace], Any]
-    args: Optional[Callable[[argparse.ArgumentParser], None]] = None
+    args: Optional[Callable[[argparse.ArgumentParser], object]] = None
     nag: bool = True                 # reminds of an unfinished setup (relay, settings) on every run
     epilog: Optional[str] = None

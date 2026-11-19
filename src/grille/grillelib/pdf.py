@@ -158,7 +158,7 @@ def _pdf_value(t, i, depth=0):
 
 def _pdf_parse(body):
     """The first value in an object body, read up to its stream keyword, if any."""
-    toks = []
+    toks: list = []                     # bytes, or a (kind, value) pair
     for tok in _pdf_tokens(body or b""):
         if tok == b"stream" or len(toks) > 200_000:
             break
@@ -170,7 +170,8 @@ def _pdf_objects(data):
     """-> {object number: body}. Where a number is defined twice, the definition later in
     the file wins, an object packed in a stream taking its stream's position, because an
     incremental update appends. None when the object streams inflate past the cap."""
-    found, streams = {}, []
+    found: dict[int, tuple[int, bytes]] = {}        # object number -> (position, body)
+    streams: list[tuple[int, bytes]] = []
 
     def put(num, pos, body):
         if num not in found or pos >= found[num][0]:
@@ -284,7 +285,8 @@ def page_labels(path, count):
                 parsed[v[1]] = _pdf_parse(objs.get(v[1]))
             return parsed[v[1]]
 
-        ranges, todo, seen, visits = [], [cat["/PageLabels"]], set(), 0
+        ranges: list[tuple] = []                     # (first page index, label dict)
+        todo, seen, visits = [cat["/PageLabels"]], set(), 0
         while todo and visits < LABEL_NODES:          # the number tree: /Nums leaves under /Kids
             v, visits = todo.pop(), visits + 1
             if isinstance(v, tuple):

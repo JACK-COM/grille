@@ -90,7 +90,7 @@ def skeleton(text):
     filler characters gone, a combining mark dropped only where it rides an ASCII letter
     (so Indic, Thai and Arabic text keeps its own), lookalikes folded to Latin. Matching
     only: nothing printed is ever the skeleton."""
-    out = []
+    out: list[str] = []
     for ch in unicodedata.normalize("NFKD", _FILLERS.sub("", text)):
         if unicodedata.category(ch) == "Mn" and out and out[-1].isascii():
             continue

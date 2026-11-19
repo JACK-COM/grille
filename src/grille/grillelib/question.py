@@ -52,7 +52,7 @@ def split_prompt(prompt):
 
 def _split_parts(body):
     marks = list(_NUMBERED.finditer(body))
-    run = []
+    run: list[re.Match] = []
     for m in marks:
         if int(m.group(1)) == len(run) + 1:
             run.append(m)
