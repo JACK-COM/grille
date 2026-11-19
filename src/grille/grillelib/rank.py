@@ -30,14 +30,14 @@ _STOP = {"the", "a", "an", "of", "for", "to", "in", "on", "and", "or", "is", "wh
          "about", "all", "every", "text", "passage", "passages", "quote", "verbatim"}
 
 
-def _words(s):
+def words(s):
     return re.findall(r"[a-z0-9]+", s.lower())
 
 
 def _overlap(q, page):
     """Word-overlap fallback when no embedder is reachable: fraction of the question's
     content words that appear on the page. Cannot see a paraphrase, and says so."""
-    qw = {w for w in _words(q) if w not in _STOP and len(w) > 2}
+    qw = {w for w in words(q) if w not in _STOP and len(w) > 2}
     if not qw:
         return 0.0
     pw = set(re.findall(r"[a-z0-9]+", page.lower()))
@@ -58,7 +58,7 @@ def rank_each(questions, pages, deadline=None):
                 docs.append(body[j:j + SUBCHUNK])
                 owner.append(i)
         # bare text: the model's retrieval prompts never beat it here, nor on Locket's task
-        cache = vcache.open_cache(config._home())
+        cache = vcache.open_cache(config.home())
         try:
             # each request waits at most what the deadline leaves; a page read before costs nothing
             wait = deadline.cap(embed.TIMEOUT) if deadline else embed.TIMEOUT
@@ -108,14 +108,14 @@ def _phrase_hits(q, pages, scored, flat):
     page with an exact pair ranks ahead of any page without one. A long question has many
     pairs and most pages hit one, so its order falls back to score. `flat` caches each
     page's words, joined, across questions."""
-    w = _words(q)
+    w = words(q)
     pairs = {f" {x} {y} " for x, y in zip(w, w[1:])
              if x not in _STOP and y not in _STOP and len(x) > 1 and len(y) > 1}
     if not pairs:
         return set()
     for i in scored:
         if i not in flat:
-            flat[i] = f" {' '.join(_words(pages[i]))} "
+            flat[i] = f" {' '.join(words(pages[i]))} "
     return {i for i in scored if any(p in flat[i] for p in pairs)}
 
 

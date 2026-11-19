@@ -82,23 +82,23 @@ def _schema_lib():
     return _manifest_schema
 
 
-def _home():
+def home():
     return Path(os.environ.get("GRILLE_HOME") or Path.home() / ".grille").expanduser()
 
 
-def _manifest():
+def load():
     """grille.json as a dict; {} when absent or unreadable, which `grille check` reports."""
     try:
-        m = json.loads((_home() / "grille.json").read_text(encoding="utf-8"))
+        m = json.loads((home() / "grille.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
     return m if isinstance(m, dict) else {}
 
 
-def _write_manifest(m):
-    home = _home()
-    home.mkdir(parents=True, exist_ok=True)
-    path = home / "grille.json"
+def write_manifest(m):
+    d = home()
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / "grille.json"
     tmp = path.with_suffix(".json.tmp")
     tmp.write_text(json.dumps(m, indent=2) + "\n", encoding="utf-8")
     tmp.replace(path)
@@ -108,7 +108,7 @@ def _write_manifest(m):
 def manifest_findings():
     """Structural problems in grille.json, as lines; [] when clean or absent. An older
     grille.json's embed section is named as moved rather than unknown."""
-    found = _schema_lib().validate_file(_home() / "grille.json", MANIFEST_SCHEMA)
+    found = _schema_lib().validate_file(home() / "grille.json", MANIFEST_SCHEMA)
     if _legacy_embed() is not None:         # named by legacy_note instead, which is no problem
         found = [f for f in found if not f.startswith("manifest: unknown key 'embed'")]
     return ["grille.json" + (f[len("manifest"):] if f.startswith("manifest") else ": " + f) for f in found]
@@ -123,7 +123,7 @@ def legacy_note():
 
 def _legacy_embed():
     """The usable settings of grille.json's embed section from Grille 0.2, while it remains, else None."""
-    e = _manifest().get("embed")
+    e = load().get("embed")
     # never `venv`: a venv's .pth files run on import, so only a person names one (configure embedder --venv)
     return {k: v for k, v in e.items() if k in embed.CONFIG_KEYS and k != "venv" and embed.usable(k, e)} \
         if isinstance(e, dict) else None
@@ -153,7 +153,7 @@ def migrate_embed():
     legacy = _legacy_embed()
     if legacy is None:
         return None
-    raw = _manifest().get("embed")
+    raw = load().get("embed")
     with panoply.lock():
         data, findings = panoply.load()
         if panoply.unreadable(findings):
@@ -162,9 +162,9 @@ def migrate_embed():
         add = {k: v for k, v in legacy.items() if k not in own}
         if add:
             panoply.write_json(panoply.path(), panoply.edit(data, "embed", add, piece="grille"))
-    m = _manifest()
+    m = load()
     m.pop("embed", None)
-    _write_manifest(m)
+    write_manifest(m)
     kept = sorted(set(legacy) - set(add))
     dropped = sorted(set(raw) - set(legacy))
     return "\n".join([f"moved grille.json's embed settings into {panoply.path()}"
@@ -174,24 +174,24 @@ def migrate_embed():
 
 
 def write_schema():
-    return _schema_lib().write_schema(MANIFEST_SCHEMA, _home() / "grille.schema.json")
+    return _schema_lib().write_schema(MANIFEST_SCHEMA, home() / "grille.schema.json")
 
 
-def _probability(v):
+def probability(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 <= v <= 1
 
 
 def score_settings(m=None):
     """-> (command, withhold or None, why). The default scorer carries SCORE_WITHHOLD; any
     other command needs a threshold of its own, and a page it cannot threshold is unscored."""
-    s = (_manifest() if m is None else m).get("score")
+    s = (load() if m is None else m).get("score")
     s = s if isinstance(s, dict) else {}
     cmd = s.get("command") or DEFAULT_SCORER
     if not (isinstance(cmd, list) and all(isinstance(x, str) and x for x in cmd)):
         return DEFAULT_SCORER, None, "score.command in grille.json is not a list of arguments"
     w = s.get("withhold")
     if w is not None:
-        if _probability(w) and w > 0:
+        if probability(w) and w > 0:
             return cmd, w, "threshold from grille.json"
         return cmd, None, f"score.withhold={w!r} in grille.json is not a probability above 0"
     if cmd == DEFAULT_SCORER:
@@ -201,7 +201,7 @@ def score_settings(m=None):
 
 def relay_settings(m=None):
     """-> the relay dict, False when turned off, or None when not set up."""
-    r = (_manifest() if m is None else m).get("relay")
+    r = (load() if m is None else m).get("relay")
     if r is False:
         return False
     if isinstance(r, dict) and ((r.get("url") and r.get("model")) or r.get("fallback")):

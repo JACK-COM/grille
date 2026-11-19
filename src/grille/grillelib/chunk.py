@@ -122,7 +122,7 @@ def _split_long(para, size):
     return pieces
 
 
-def _chunk_text(text, size=CHUNK_TEXT):
+def chunk_text(text, size=CHUNK_TEXT):
     """Paragraph-bounded chunks of about `size` chars, so a chunk never splits a sentence
     the screen would need whole; a paragraph longer than a chunk is split by _split_long."""
     paras = [q for p in re.split(r"\n\s*\n", text) if p.strip()

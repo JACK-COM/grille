@@ -60,7 +60,7 @@ def cmd_check(a):
         print("relay: " + (f"{r['model']} at {r['url']} ({r.get('api') or 'openai'} API)" if r.get("url") else "no model")
               + (f", fallback {Path(r['fallback'][0]).name}" if r.get("fallback") else "")
               + "; not called here (`grille fetch URL --ask Q --decipher` calls it)")
-    print(f"settings: {config._home() / 'grille.json'}")
+    print(f"settings: {config.home() / 'grille.json'}")
     print(f"store: {spans.store_dir()}")
     print(f"fetch: urllib, no JavaScript, {net.FETCH_CAP >> 20} MB cap, {net.REDIRECT_CAP} redirects, "
           f"{net.FETCH_TIMEOUT} s per hop to fetch and {net.VERIFY_TIMEOUT} s to verify; reachability is not checked here")
@@ -101,8 +101,8 @@ def cmd_uninstall(a):
         print(f"  the embedder venv {embed.VENV}, which {' and '.join(others)} still use{'s' if len(others) == 1 else ''}")
     elif embed.VENV.is_dir() and not venv:
         print(f"  the embedder venv you named: {embed.VENV}")
-    if config._home().is_dir():
-        print(f"  the settings: rm -r {config._home()}   (grille.json and its schema)")
+    if config.home().is_dir():
+        print(f"  the settings: rm -r {config.home()}   (grille.json and its schema)")
     if isinstance(panoply.load()[0].get("grille"), dict):
         print(f"  Grille's embedder overrides: the \"grille\" section of {panoply.path()}")
     print("  the command:  brew uninstall jack-com/panoply/grille   (or `uv tool uninstall grille`)")
@@ -194,7 +194,7 @@ def cmd_configure(a):
         print(moved, file=sys.stderr)
     if a.what == "embedder":
         return _configure_embedder(a)
-    m = config._manifest()
+    m = config.load()
     if a.what == "relay":
         if a.detect:
             hits = [(n, u, ms) for n, u in LOCAL_SERVERS if (ms := _models_at(u)) is not None]
@@ -259,7 +259,7 @@ def cmd_configure(a):
                     confirmed(a, [f"withhold a page only at instructs-agent {a.withhold} or above"])
                 s["withhold"] = a.withhold
             m["score"] = s
-    print(f"wrote {config._write_manifest(m)}")
+    print(f"wrote {config.write_manifest(m)}")
     return 0
 
 
@@ -369,11 +369,11 @@ def cmd_calibrate(a):
         return 0
     # the items decide the threshold, so whoever wrote them decides what passes: a person's act
     confirmed(a, [f"withhold a page at instructs-agent {cut:.2f} or above, as measured on {guard.relay(a.items, 200)}"])
-    m = config._manifest()
+    m = config.load()
     m["score"] = {"command": cmd, "withhold": cut,
                   "calibrated": {"items": len(rows), "auroc": round(auroc, 3), "clean_withheld": len(fp),
                                  "file": str(Path(a.items).resolve())}}
-    print(f"wrote {config._write_manifest(m)}")
+    print(f"wrote {config.write_manifest(m)}")
     return 0
 
 

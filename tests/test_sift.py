@@ -3,13 +3,13 @@ import unittest
 
 from tests.harness import GrilleCase
 from grillelib.documents import acquire  # noqa: E402
-from grillelib.question import SPLIT_MAX, _tags, split_prompt, topic_parts  # noqa: E402
+from grillelib.question import SPLIT_MAX, tags, split_prompt, topic_parts  # noqa: E402
 from grillelib.rank import _phrase_hits, interleave, rank, rank_each  # noqa: E402
 from grillelib.relay import verbatim  # noqa: E402
 
 
 class SiftTest(GrilleCase):
-    """rank, rank_each, interleave, topic_parts, split_prompt, verbatim, _phrase_hits and _tags."""
+    """rank, rank_each, interleave, topic_parts, split_prompt, verbatim, _phrase_hits and tags."""
 
     def test_rank_first(self):
         """The relevant paragraph of the known-positive document ranks first."""
@@ -75,7 +75,7 @@ class SiftTest(GrilleCase):
 
     def test_tags(self):
         """Question tags read as English."""
-        self.assertTrue(_tags([2]) == "question 2" and _tags([1, 2, 3]) == "questions 1, 2 and 3")
+        self.assertTrue(tags([2]) == "question 2" and tags([1, 2, 3]) == "questions 1, 2 and 3")
 
 
 if __name__ == "__main__":

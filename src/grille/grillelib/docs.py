@@ -98,7 +98,7 @@ def cmd_fetch(a):
           + "  \nsaved in this session's store")
     if net.dropped_path(a.url, final):
         print(f"warning: {net.DROPPED}")
-    note = documents.by_kind(kind).note(data, net._decode(data, charset))
+    note = documents.by_kind(kind).note(data, net.decode(data, charset))
     if note:
         print(note)
     print()

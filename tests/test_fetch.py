@@ -10,10 +10,10 @@ import urllib.request
 
 from tests.harness import GrilleCase, tiny_pdf
 from grille import main  # noqa: E402
-from grillelib.config import _manifest, _write_manifest  # noqa: E402
+from grillelib.config import load, write_manifest  # noqa: E402
 from grillelib.documents import acquire  # noqa: E402
 from grillelib.documents import of_fetched  # noqa: E402
-from grillelib.net import DROPPED, _decode, dropped_path, fetch, save_fetched, verify  # noqa: E402
+from grillelib.net import DROPPED, decode, dropped_path, fetch, save_fetched, verify  # noqa: E402
 from grillelib.store import store_dir  # noqa: E402
 
 
@@ -138,7 +138,7 @@ class FetchTest(GrilleCase):
             data, _, ctype, charset, _ = fetch(f"{base}/markup")
             self.assertEqual(of_fetched(data, ctype).kind, "text", "an explicit text/plain must not be sniffed as html")
             latin = "<html><head><meta charset=iso-8859-1></head><body>caf\u00e9</body></html>".encode("latin-1")
-            self.assertIn("caf\u00e9", _decode(latin, None), "meta charset ignored")
+            self.assertIn("caf\u00e9", decode(latin, None), "meta charset ignored")
             rows = {u: verify(f"{base}{u}") for u in ("/manual.txt", "/nohead", "/r", "/gone", "/missing", "/loop")}
             self.assertTrue(rows["/gone"]["dropped_path"] and not rows["/r"]["dropped_path"], rows)
             self.assertFalse(dropped_path(f"{base}/", f"{base}/"), "a request for the root dropped nothing")
@@ -168,9 +168,9 @@ class FetchTest(GrilleCase):
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
                 main(["fetch", f"{base}/r", "--ask", "anything"])
             self.assertNotIn(DROPPED, out.getvalue(), "a redirect to a document was named a wall")
-            m = _manifest()
+            m = load()
             try:
-                _write_manifest({**m, "relay": {"url": base, "model": "stub", "api": "ollama", "think": True}})
+                write_manifest({**m, "relay": {"url": base, "model": "stub", "api": "ollama", "think": True}})
                 out = io.StringIO()
                 with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
                     main(["fetch", f"{base}/page.html", "--ask", "What is the time between overhaul?", "--decipher"])
@@ -191,25 +191,25 @@ class FetchTest(GrilleCase):
                     main(["fetch", f"{base}/page.html", "--ask", "Quote verbatim: (1) the time between overhaul; "
                           "(2) the maximum rpm", "--split", "--decipher"])
                 self.assertTrue("1. the time between overhaul" in posted[-1] and "2. the maximum rpm" in posted[-1], "--split did not hand the relay one question per part")
-                _write_manifest({**m, "relay": {"url": f"{base}/v1", "model": "stub"}})
+                write_manifest({**m, "relay": {"url": f"{base}/v1", "model": "stub"}})
                 out = io.StringIO()
                 with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
                     main(["fetch", f"{base}/page.html", "--ask", "What is the time between overhaul?", "--decipher"])
                 self.assertTrue("2 lines verified" in out.getvalue() and "think" not in json.loads(posted[-1]), "the OpenAI-compatible relay failed")
                 fb = [sys.executable, "-c", "import sys; sys.stdin.read(); print('Time between overhaul is 2000 hours. [chunk 1]')"]
-                _write_manifest({**m, "relay": {"url": "http://127.0.0.1:1", "model": "dead", "fallback": fb}})
+                write_manifest({**m, "relay": {"url": "http://127.0.0.1:1", "model": "dead", "fallback": fb}})
                 out = io.StringIO()
                 with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
                     main(["fetch", f"{base}/page.html", "--ask", "What is the time between overhaul?", "--decipher"])
                 self.assertIn("1 line verified", out.getvalue(), "the fallback command did not answer")
-                _write_manifest({**m, "relay": {"url": "http://127.0.0.1:1", "model": "dead"}})
+                write_manifest({**m, "relay": {"url": "http://127.0.0.1:1", "model": "dead"}})
                 out = io.StringIO()
                 with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
                     main(["fetch", f"{base}/page.html", "--ask", "What is the time between overhaul?", "--decipher"])
                 text = out.getvalue()
                 self.assertTrue("relay failed" in text and "2000 hours" in text, "a dead relay must hand back the pages")
                 for relay_cfg, fragment in ((None, "not set up"), (False, "turned off")):
-                    _write_manifest({**m, **({"relay": relay_cfg} if relay_cfg is not None else {})}
+                    write_manifest({**m, **({"relay": relay_cfg} if relay_cfg is not None else {})}
                                     if relay_cfg is not None else {k: v for k, v in m.items() if k != "relay"})
                     try:
                         with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
@@ -218,7 +218,7 @@ class FetchTest(GrilleCase):
                     except SystemExit as e:
                         self.assertIn(fragment, str(e.code), e.code)
             finally:
-                _write_manifest(m)
+                write_manifest(m)
             out = io.StringIO()
             with contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
                 rc = main(["verify", f"{base}/manual.txt", f"{base}/missing", "--json"])

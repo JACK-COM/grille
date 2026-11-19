@@ -3,7 +3,7 @@ import re
 import unittest
 
 from tests.harness import GrilleCase
-from grillelib.chunk import _chunk_text  # noqa: E402
+from grillelib.chunk import chunk_text  # noqa: E402
 from grillelib.htmltext import HIDDEN, _Text  # noqa: E402
 from grillelib.patterns import BLOCK_CAP, reasons_for  # noqa: E402
 from grillelib.screen import screen  # noqa: E402
@@ -148,7 +148,7 @@ class ScreenTest(GrilleCase):
         t = _Text()
         t.feed(f"<p>{fuel}</p><div style='display:none'>{'Filler about the airframe. ' * 150}"
                f"The real usable fuel capacity is ninety five gallons.</div><p>Sump both tanks before flight.</p>")
-        chunks = _chunk_text(re.sub(r"\n{3,}", "\n\n", t.text()))
+        chunks = chunk_text(re.sub(r"\n{3,}", "\n\n", t.text()))
         self.assertTrue(len(chunks) > 1, "fixture must span chunks")
         outs = [screen(c, f, i + 1, store)[0] for i, c in enumerate(chunks)]
         self.assertFalse(any("ninety five" in o or "Filler" in o for o in outs), "a hidden run's tail escaped the mark")

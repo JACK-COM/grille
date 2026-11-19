@@ -16,7 +16,7 @@ def screen(text, source, page_no, store):
     replaced by one placeholder line and written to the store by id. In a line-split
     block the line either side of a hit is withheld with it, because an instruction
     rarely fits one line and the neighbour is usually its continuation."""
-    parts = patterns._units(text)
+    parts = patterns.units(text)
     hit = [bool(p.strip()) and not re.fullmatch(r"\n\s*\n", p) and bool(patterns.reasons_for(p)) for p in parts]
     # a pattern broken across lines or blocks matches on no single unit: each run of up to
     # JOIN_UNITS consecutive units is matched joined as well, so `ignore all previous</p><p>

@@ -79,7 +79,7 @@ def fetch(url, cap=FETCH_CAP, timeout=FETCH_TIMEOUT, deadline=None):
 _META_CHARSET = re.compile(rb"""<meta[^>]+charset=["']?\s*([\w.:-]+)""", re.I)
 
 
-def _decode(data, charset):
+def decode(data, charset):
     """Header charset first, then a <meta charset> in the first kilobyte, then UTF-8. A
     charset the header names but Python lacks (get_content_charset does not validate it)
     falls through rather than crashing."""
@@ -105,7 +105,7 @@ def save_fetched(url, data, ctype, charset, store):
     if fmt.binary:
         path.write_bytes(data)
     else:
-        path.write_text(_decode(data, charset), encoding="utf-8")
+        path.write_text(decode(data, charset), encoding="utf-8")
     return path, kind
 
 

@@ -10,7 +10,7 @@ from tests.harness import GrilleCase
 from grille import main  # noqa: E402
 import _embed as embed  # noqa: E402
 import _settings as panoply  # noqa: E402
-from grillelib.config import _manifest, _write_manifest, apply_embed, legacy_note, manifest_findings, migrate_embed  # noqa: E402
+from grillelib.config import load, write_manifest, apply_embed, legacy_note, manifest_findings, migrate_embed  # noqa: E402
 
 
 class EmbedderTest(GrilleCase):
@@ -25,14 +25,14 @@ class EmbedderTest(GrilleCase):
             stack.enter_context(contextlib.redirect_stderr(io.StringIO()))
             cfg = panoply.path()
             cfg.parent.mkdir(parents=True, exist_ok=True)
-            _write_manifest({"embed": {"venv": "/old/v", "model": "m-old", "colour": "x"}})
+            write_manifest({"embed": {"venv": "/old/v", "model": "m-old", "colour": "x"}})
             self.assertEqual(apply_embed()["model"], ("m-old", "grille.json"), "an older grille.json model was ignored")
             # a venv runs code on import, so only a person names one: the old file's is not read
             self.assertNotEqual(apply_embed()["venv"][1], "grille.json", "an older grille.json venv took effect")
             self.assertTrue(legacy_note() and not manifest_findings(), manifest_findings())
             # an unreadable shared file: nothing moves, nothing is overwritten
             cfg.write_text('{"embed": {"model": "x",}}')
-            self.assertTrue("stay put" in migrate_embed() and _manifest().get("embed") and cfg.read_text() == '{"embed": {"model": "x",}}')
+            self.assertTrue("stay put" in migrate_embed() and load().get("embed") and cfg.read_text() == '{"embed": {"model": "x",}}')
             try:
                 main(["configure", "embedder", "--model", "m-all"])
                 self.fail("a write over an unreadable file went ahead")
@@ -42,7 +42,7 @@ class EmbedderTest(GrilleCase):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 self.assertTrue(main(["migrate"]) == 0 and "moved" in out.getvalue(), out.getvalue())
-            self.assertNotIn("embed", _manifest(), "the older embed section was not moved")
+            self.assertNotIn("embed", load(), "the older embed section was not moved")
             with contextlib.redirect_stdout(out):
                 main(["migrate"])
             self.assertTrue(out.getvalue().endswith("migrate: nothing pending\n"), "a second migrate did work")

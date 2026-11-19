@@ -16,7 +16,7 @@ from . import patterns
 from .chunk import CHUNK_TEXT  # noqa: F401  (kept beside the other sizes a reader looks for)
 from . import documents
 from .documents import acquire, render_pages
-from .question import _tags, split_prompt, topic_parts
+from .question import tags, split_prompt, topic_parts
 from .rank import MIN_SCORE_NOTE, PAGES_DEFAULT, interleave, rank_each
 from .relay import relay, verbatim
 from .score import score_pages
@@ -152,7 +152,7 @@ def body(r: SiftResult) -> str:
     for p in r.pages:
         extra = (f", instructs-agent {p.scored:.2f}" if p.scored is not None
                  else ", unscored" if r.scoring else "")
-        which = f", {_tags(p.asks)}" if many else ""
+        which = f", {tags(p.asks)}" if many else ""
         printed = f"printed {r.labels[p.n]}, " if p.n in r.labels else ""
         out.append(f"\n## {r.unit} {p.n} ({printed}score {p.score:.2f}{which}{extra})\n\n{p.body}")
     return "\n".join(out)

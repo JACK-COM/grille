@@ -29,10 +29,10 @@ class Scale(GrilleCase):
         self.assertEqual(len(seen), first, "a cached page was embedded again")
 
     def test_the_cache_keeps_vectors(self):
-        c = vcache.open_cache(config._home())
+        c = vcache.open_cache(config.home())
         c["k"] = [1.0, 2.0]
         c.close()
-        c = vcache.open_cache(config._home())
+        c = vcache.open_cache(config.home())
         self.assertEqual(list(c.get("k")), [1.0, 2.0])
         c.close()
 
@@ -49,12 +49,12 @@ class Scale(GrilleCase):
 
 class AuditFixes(Scale):
     def test_two_runs_share_the_cache_without_a_lock_crash(self):
-        a, b = vcache.open_cache(config._home()), vcache.open_cache(config._home())
+        a, b = vcache.open_cache(config.home()), vcache.open_cache(config.home())
         a["x"] = [1.0]
         b["y"] = [2.0]
         a.close()
         b.close()
-        c = vcache.open_cache(config._home())
+        c = vcache.open_cache(config.home())
         self.assertEqual((list(c.get("x")), list(c.get("y"))), ([1.0], [2.0]))
         c.close()
 

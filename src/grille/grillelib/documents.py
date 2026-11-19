@@ -86,7 +86,7 @@ def _read_pdf(p):
 def _read_html(p):
     t = htmltext._Text()
     t.feed(p.read_text(encoding="utf-8", errors="replace"))
-    return chunk._chunk_text(re.sub(r"\n{3,}", "\n\n", t.text())), []
+    return chunk.chunk_text(re.sub(r"\n{3,}", "\n\n", t.text())), []
 
 
 def _app_shell(data, text):
@@ -99,7 +99,7 @@ def _app_shell(data, text):
 
 
 def _read_text(p):
-    return chunk._chunk_text(p.read_text(encoding="utf-8", errors="replace")), []
+    return chunk.chunk_text(p.read_text(encoding="utf-8", errors="replace")), []
 
 
 PDF = Format("pdf", (".pdf",), ("application/pdf",), _read_pdf, unit="page",

@@ -70,12 +70,12 @@ def _split_parts(body):
         return []
     parts = [re.sub(r"^(?:and|also)\s+", "", x.strip(" \t\n;,")).strip() for x in parts]
     # every part must name something: a bare "30" or "e.g." is a fragment, not a topic
-    if not all(any(w not in rank._STOP and not w.isdigit() for w in rank._words(x)) for x in parts):
+    if not all(any(w not in rank._STOP and not w.isdigit() for w in rank.words(x)) for x in parts):
         return []
     return parts if 2 <= len(parts) <= SPLIT_MAX else []
 
 
-def _tags(qs):
+def tags(qs):
     """[1, 2, 3] -> "questions 1, 2 and 3"."""
     nums = list(map(str, qs))
     return ("question " if len(nums) == 1 else "questions ") + (

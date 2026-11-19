@@ -88,7 +88,7 @@ def score_text(cmd, text, subject=None, timeout=None, env=None, deadline=None):
             p = json.loads(r.stdout)["answers"]["instructs_agent"]["noul"]
         except (ValueError, KeyError, TypeError):
             raise ScorerError(f"reply lacks answers.instructs_agent.noul: {r.stdout.strip()[:80]!r}")
-        if not config._probability(p):
+        if not config.probability(p):
             raise ScorerError(f"noul={p!r} is not a probability")
         best = max(best, p)
     return best

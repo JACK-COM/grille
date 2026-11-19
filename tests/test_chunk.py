@@ -2,7 +2,7 @@
 import unittest
 
 from tests.harness import GrilleCase
-from grillelib.chunk import CHUNK_TEXT, _chunk_text, _split_long  # noqa: E402
+from grillelib.chunk import CHUNK_TEXT, chunk_text, _split_long  # noqa: E402
 from grillelib.patterns import reasons_for  # noqa: E402
 from grillelib.score import SCORE_WINDOW, windows  # noqa: E402
 from grillelib.screen import _PLACEHOLDER, hold  # noqa: E402
@@ -10,7 +10,7 @@ from grillelib.store import store_dir  # noqa: E402
 
 
 class ChunkTest(GrilleCase):
-    """_split_long, _chunk_text, windows and the withheld placeholder."""
+    """_split_long, chunk_text, windows and the withheld placeholder."""
 
     def test_split_keeps_flagged_passages(self):
         """No cut lands inside a flagged passage."""
@@ -28,11 +28,11 @@ class ChunkTest(GrilleCase):
         """An over-long paragraph splits at record breaks."""
         # An over-long paragraph splits at record breaks; one line of JSON becomes many chunks.
         rec = '{"document_number":"95-633","title":"Airworthiness Directives; MU-2 Series"},'
-        chunks = _chunk_text("[" + rec * 100 + "]")
+        chunks = chunk_text("[" + rec * 100 + "]")
         self.assertTrue(len(chunks) > 1 and all(len(c) <= CHUNK_TEXT for c in chunks), [len(c) for c in chunks])
         self.assertTrue(all(c.endswith("},") for c in chunks[:-1]), "a record was cut mid-field")
         self.assertEqual("".join(chunks), "[" + rec * 100 + "]", "the split lost or added text")
-        self.assertEqual(_chunk_text("x" * (CHUNK_TEXT * 2 + 5)), ["x" * CHUNK_TEXT] * 2 + ["x" * 5])
+        self.assertEqual(chunk_text("x" * (CHUNK_TEXT * 2 + 5)), ["x" * CHUNK_TEXT] * 2 + ["x" * 5])
 
     def test_windows(self):
         """Windows cover a long page to its last character."""

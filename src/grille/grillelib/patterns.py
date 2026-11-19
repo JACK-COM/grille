@@ -117,7 +117,7 @@ def reasons_for(chunk):
     return out
 
 
-def _units(text):
+def units(text):
     """Split into screening units keeping separators, so the join is byte-identical. The
     unit is the blank-line block; a block past BLOCK_CAP, which is what a dense manual
     page with no blank lines becomes, is split into lines so a withhold takes the

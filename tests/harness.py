@@ -101,5 +101,5 @@ class GrilleCase(unittest.TestCase):
         held.__enter__()
         self.addCleanup(held.__exit__, None, None, None)
         grillelib.config.apply_embed()                # the throwaway settings, not this machine's
-        grillelib.config._write_manifest({"score": {"command": stub_scorer("0.9 if 'APPROVED' in t else 0.02"),
+        grillelib.config.write_manifest({"score": {"command": stub_scorer("0.9 if 'APPROVED' in t else 0.02"),
                                           "withhold": 0.3}})
