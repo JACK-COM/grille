@@ -7,3 +7,6 @@ pre-commit:
       run: python3 -m unittest discover -s tests -t . && python3 src/grille/grille.py selftest
     typecheck:
       run: UV_OFFLINE=1 uvx --quiet --from mypy==1.18.2 mypy || uvx --quiet --from mypy==1.18.2 mypy
+    mod:
+      glob: "src/grille/claude-mod/**"
+      run: npx --yes @anthropic-ai/claude-code@2.1.327 plugin test src/grille/claude-mod

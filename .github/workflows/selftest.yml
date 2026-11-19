@@ -1,4 +1,5 @@
-# Runs tests/ and the install smoke check on Linux and macOS for every push and pull request.
+# Runs tests/ and the install smoke check on Linux and macOS, and the WebFetch mod's tests,
+# for every push and pull request.
 # Read-only on purpose: no secrets, no write token, actions pinned by commit, and a
 # checkout that keeps no credentials, so a workflow run can publish nothing. The
 # panoply-lib copy check needs the private sibling repo and stays in the local
@@ -46,3 +47,15 @@ jobs:
         run: python -m unittest discover -s tests -t .
       - name: Install smoke check
         run: python src/grille/grille.py selftest
+
+  mod:
+    # The mod's register.test.ts runs under Claude Code's own test runner, pinned as in the
+    # makefile; it needs no account or key.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Mod tests
+        run: npx --yes @anthropic-ai/claude-code@2.1.327 plugin test src/grille/claude-mod
