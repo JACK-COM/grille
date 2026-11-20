@@ -36,7 +36,15 @@ export const register: Register = on => {
     // and deny; its ask comes before the mode or a dialog settles it, so an ask
     // runs core's own path and its result is discarded unread: one extra fetch,
     // whose small-model summary no one sees.
-    const verdict = await $.tool.check({ tool: 'WebFetch', input: { url: e.url, prompt: e.prompt } })
+    // Claude Code 2.1.329 runs WebFetch inside its built-in web-fetch subagent,
+    // where tool.check throws `no tool named "WebFetch" in this session` (an
+    // agentId does not help). A check that throws is treated as an ask, so
+    // core's own permission path decides before grille runs. The catch also
+    // takes an abort, deliberately: the ask path still fails closed. There every
+    // fetch pays the ask path's discarded core fetch, allowed ones included.
+    const verdict = await $.tool
+      .check({ tool: 'WebFetch', input: { url: e.url, prompt: e.prompt } })
+      .catch(() => ({ decision: 'ask' as const, reason: undefined }))
     if (verdict.decision === 'deny') return { deny: verdict.reason ?? `WebFetch to ${e.url} is denied by a permission rule.` }
     // Only a verdict this mod knows proceeds: one the host adds later refuses until read.
     if (verdict.decision !== 'allow' && verdict.decision !== 'ask') {
