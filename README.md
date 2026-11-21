@@ -27,7 +27,7 @@ Then ask your agent to run `grille help install` and follow it. `grille check` n
 
 ## Requirements
 
-Python 3.9 or later, numpy, and poppler (`pdftotext`, `pdftoppm`) for PDFs. Ranking by meaning uses the same embedder as Locket; `--score` uses Augur by default; `--decipher` uses a chat model you choose. `fetch` runs no JavaScript, so a page that renders in the browser stays browser work. Tested on macOS and Linux (Debian, Python 3.12); on Windows, run it under WSL.
+Python 3.11 or later, numpy, and poppler (`pdftotext`, `pdftoppm`) for PDFs. Ranking by meaning uses the same embedder as Locket; `--score` uses Augur by default; `--decipher` uses a chat model you choose. `fetch` runs no JavaScript, so a page that renders in the browser stays browser work. Tested on macOS and Linux (Debian, Python 3.12); on Windows, run it under WSL.
 
 ## Security
 

@@ -20,15 +20,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python: ["3.9", "3.14"]
-        # setup-python ships no 3.9 for Ubuntu 26.04, which ubuntu-latest became; 3.9 on
-        # Linux stays tested on 24.04 while requires-python says >=3.9
-        exclude:
-          - os: ubuntu-latest
-            python: "3.9"
-        include:
-          - os: ubuntu-24.04
-            python: "3.9"
+        python: ["3.11", "3.14", "3.15"]
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
     steps:
@@ -58,4 +50,4 @@ jobs:
         with:
           persist-credentials: false
       - name: Mod tests
-        run: npx --yes @anthropic-ai/claude-code@2.1.327 plugin test src/grille/claude-mod
+        run: npx --yes @anthropic-ai/claude-code@2.1.330 plugin test src/grille/claude-mod

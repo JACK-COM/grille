@@ -2,9 +2,9 @@
 .SILENT:
 
 # Pinned, so a mypy release never fails a commit the code did not change.
-MYPY = uvx --quiet --from mypy==1.18.2 mypy
+MYPY = uvx --quiet --from mypy==2.4.1 mypy
 # The WebFetch mod's tests run under Claude Code's own runner, pinned the same way.
-CLAUDE_CODE = npx --yes @anthropic-ai/claude-code@2.1.327
+CLAUDE_CODE = npx --yes @anthropic-ai/claude-code@2.1.330
 
 help: ## | List all available commands
 	echo "Available commands in this makefile"
@@ -19,7 +19,7 @@ test: ## | Check the panoply-lib copies and the types, then run tests/, the inst
 	python3 src/grille/grille.py selftest
 	$(CLAUDE_CODE) plugin test src/grille/claude-mod
 
-typecheck: ## | Type-check src/grille as Python 3.9 reads it ([tool.mypy] in pyproject.toml)
+typecheck: ## | Type-check src/grille as Python 3.11 reads it ([tool.mypy] in pyproject.toml)
 	$(MYPY)
 
 modtest: ## | Run the WebFetch mod's tests (src/grille/claude-mod/hooks/register.test.ts)

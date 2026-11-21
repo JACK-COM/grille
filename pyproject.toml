@@ -7,7 +7,7 @@ name = "grille"
 dynamic = ["version"]
 description = "Gives an agent only the pages of a document that answer its question, and withholds passages written to steer it."
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 license = "MIT"
 license-files = ["LICENSE"]
 dependencies = ["numpy>=1.22"]
@@ -27,7 +27,7 @@ grille = ["INSTALL-grille.md"]
 [tool.mypy]
 # `make typecheck`. grille.py puts its own directory on the path, so src/grille is the import
 # root; the underscore modules are panoply-lib copies, checked in panoply-lib.
-python_version = "3.9"
+python_version = "3.11"
 files = ["src/grille"]
 exclude = ['^src/grille/_[a-z]', '^src/grille/claude-mod/']
 mypy_path = "src/grille"
