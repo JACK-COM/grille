@@ -85,11 +85,16 @@ class Round1(GrilleCase):
         port = lsock.getsockname()[1]
 
         def serve():
-            for _ in range(2):
-                c, _ = lsock.accept()
-                c.recv(4096)
-                c.sendall(b"HELLO THERE\r\n\r\n")
-                c.close()
+            # fetch may connect once or twice; the cleanup closes the socket under a waiting
+            # accept, which is the end of the test, not a failure to print
+            try:
+                for _ in range(2):
+                    c, _ = lsock.accept()
+                    c.recv(4096)
+                    c.sendall(b"HELLO THERE\r\n\r\n")
+                    c.close()
+            except OSError:
+                return
         threading.Thread(target=serve, daemon=True).start()
         self.addCleanup(lsock.close)
         code, out = run(["fetch", "--ask", "x", "--", f"http://127.0.0.1:{port}/"])
