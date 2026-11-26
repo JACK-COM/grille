@@ -1,10 +1,15 @@
-"""Reading a document into pages: pdftotext for a PDF, HTML to text, plain text chunked; a
-page with no text layer rendered by pdftoppm.
+"""Reading a document into pages: pdftotext for a PDF, HTML to text, a Word document's body
+text, plain text chunked; a page with no text layer rendered by pdftoppm. A binary body no
+format claims is refused.
 """
+import codecs
 import re
 import shutil
 import subprocess
 import sys
+import xml.parsers.expat
+import zipfile
+import zlib
 from pathlib import Path
 from typing import Callable, List, NamedTuple, Optional, Tuple
 
@@ -98,8 +103,97 @@ def _app_shell(data, text):
     return None
 
 
+BINARY_PROBE = 8192      # bytes looked at for a NUL, as git decides a file is binary
+
+
+def is_binary(text):
+    """True for a body no text reader should pass on: a NUL in its first BINARY_PROBE
+    characters once decoded. TEXT takes whatever no other format claims, so without this a
+    zip, an image or an Office file reaches the pages as noise that looks read. Judged after
+    decoding, because UTF-16 text carries NULs as bytes and none as characters."""
+    return "\x00" in text[:BINARY_PROBE]
+
+
+def reads():
+    return ", ".join(f.kind for f in FORMATS)
+
+
 def _read_text(p):
-    return chunk.chunk_text(p.read_text(encoding="utf-8", errors="replace")), []
+    data = p.read_bytes()
+    bom16 = data.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE))
+    text = data.decode("utf-16" if bom16 else "utf-8", errors="replace")
+    if is_binary(text):
+        sys.exit(f"grille: {p} is binary, not text; grille reads {reads()}")
+    return chunk.chunk_text(text), []
+
+
+DOCX_CAP = 64 * 1024 * 1024   # bytes of word/document.xml parsed, counted as read, so a lying header changes nothing
+_W = "http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+_DOCX_TEXT = {_W + "tab": "\t", _W + "br": "\n", _W + "cr": "\n", _W + "noBreakHyphen": "-"}
+
+
+class _Refused(Exception):
+    pass
+
+
+def _read_docx(p):
+    """The body text of word/document.xml: runs in order, a tab as a tab, a break as a
+    newline, a blank line after each paragraph. Parsed by expat with namespaces resolved, so
+    a rebound prefix or a UTF-16 part reads the same, and streamed against DOCX_CAP. A DTD is
+    refused outright: a Word body never declares one, and that is where entity expansion
+    lives. Deleted text, field codes, headers, footers, footnotes and comments are left out;
+    a text box Word writes twice (mc:Choice and mc:Fallback) is read twice, which hides
+    nothing from the screen."""
+    out: List[str] = []
+    stack: List[str] = []
+    parser = xml.parsers.expat.ParserCreate(namespace_separator="}")
+    parser.buffer_text = True
+
+    def refuse(*_):
+        raise _Refused
+
+    def start(name, _attrs):
+        parent = stack[-1] if stack else ""
+        stack.append(name)
+        if name in _DOCX_TEXT and parent == _W + "r":     # a w:tab under w:tabs is a tab stop, not text
+            out.append(_DOCX_TEXT[name])
+
+    def end(name):
+        stack.pop()
+        if name == _W + "p":
+            out.append("\n\n")
+
+    def chars(data):
+        if stack and stack[-1] == _W + "t":
+            out.append(data)
+
+    parser.StartDoctypeDeclHandler = refuse
+    parser.EntityDeclHandler = refuse
+    parser.StartElementHandler = start
+    parser.EndElementHandler = end
+    parser.CharacterDataHandler = chars
+    why = ""
+    try:
+        with zipfile.ZipFile(p) as z:
+            if "word/document.xml" not in z.namelist():
+                sys.exit(f"grille: {p} is a zip without word/document.xml, so not a Word document")
+            seen = 0
+            with z.open("word/document.xml") as f:
+                while block := f.read(1024 * 1024):
+                    seen += len(block)
+                    if seen > DOCX_CAP:
+                        sys.exit(f"grille: {p} unzips past {DOCX_CAP // (1024 * 1024)} MB; refused")
+                    parser.Parse(block, False)
+            parser.Parse(b"", True)
+    except (zipfile.BadZipFile, zlib.error, EOFError, RuntimeError, NotImplementedError):
+        why = "is not a readable zip (damaged, encrypted or compressed a way Python cannot read)"
+    except _Refused:
+        why = "declares a DTD, which a Word document never does; refused"
+    except xml.parsers.expat.ExpatError as e:
+        why = f"holds a word/document.xml that is not well-formed XML ({xml.parsers.expat.ErrorString(e.code)})"
+    if why:
+        sys.exit(f"grille: {p} {why}")
+    return chunk.chunk_text(re.sub(r"\n{3,}", "\n\n", "".join(out))), []
 
 
 PDF = Format("pdf", (".pdf",), ("application/pdf",), _read_pdf, unit="page",
@@ -108,8 +202,11 @@ PDF = Format("pdf", (".pdf",), ("application/pdf",), _read_pdf, unit="page",
 HTML = Format("html", (".html", ".htm"), ("text/html", "application/xhtml+xml"), _read_html,
               sniff=lambda head: b"<html" in head.lower() or b"<!doctype html" in head.lower(), ext="html",
               note=_app_shell)
+DOCX = Format("docx", (".docx",), ("application/vnd.openxmlformats-officedocument.wordprocessingml.document",),
+              _read_docx, sniff=lambda head: head[:4] == b"PK\x03\x04" and b"word/" in head,
+              binary=True, ext="docx")
 TEXT = Format("text", (), (), _read_text)
-FORMATS = (PDF, HTML, TEXT)           # TEXT last: whatever no other format claims
+FORMATS = (PDF, HTML, DOCX, TEXT)     # TEXT last: whatever no other format claims, refusing a binary body
 
 
 def by_kind(kind):

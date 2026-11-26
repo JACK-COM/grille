@@ -4,6 +4,7 @@ quick check that a URL answers.
 import hashlib
 import http.client
 import re
+import sys
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -97,15 +98,19 @@ def save_fetched(url, data, ctype, charset, store):
     """Write the body into the session store under a name acquire() can type, and return
     (path, kind). Text is re-encoded as UTF-8 so acquire reads it without a charset."""
     fmt = documents.of_fetched(data, ctype)
+    text = None if fmt.binary else decode(data, charset)
+    if text is not None and documents.is_binary(text):
+        sys.exit(f"grille: fetch of {guard.relay(url, 200)} returned a binary body typed {ctype or 'nothing'}; "
+                 f"grille reads {documents.reads()}")
     kind = fmt.kind
     base = re.sub(r"[^\w.-]+", "_", Path(urllib.parse.urlsplit(url).path).name)[:60] or "page"
     base = re.sub("|".join(re.escape(s) + "$" for f in documents.FORMATS for s in f.suffixes) + r"|\.txt$", "", base,
                   flags=re.I)
     path = store / f"fetch-{hashlib.sha1(url.encode()).hexdigest()[:10]}-{base}.{fmt.ext}"
-    if fmt.binary:
+    if text is None:
         path.write_bytes(data)
     else:
-        path.write_text(decode(data, charset), encoding="utf-8")
+        path.write_text(text, encoding="utf-8")
     return path, kind
 
 

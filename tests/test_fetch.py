@@ -3,7 +3,9 @@ import contextlib
 import io
 import json
 import sys
+import time
 import unittest
+import zipfile
 from unittest import mock
 import urllib.error
 import urllib.request
@@ -227,6 +229,120 @@ class FetchTest(GrilleCase):
         finally:
             srv.shutdown()
             srv.server_close()
+
+
+DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+W_NS = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+
+def make_docx(path, body, prefix="w", raw=None):
+    """A Word file holding `body` as word/document.xml (or `raw` bytes as it), written first so
+    its name sits in the first bytes, the way the sniff reads an untyped body."""
+    xml = raw if raw is not None else (f'<?xml version="1.0"?><{prefix}:document xmlns:{prefix}="{W_NS}">'
+                                       f"<{prefix}:body>{body}</{prefix}:body></{prefix}:document>")
+    with zipfile.ZipFile(path, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("word/document.xml", xml)
+        z.writestr("[Content_Types].xml", "<Types/>")
+    return path
+
+
+class BinaryTest(GrilleCase):
+    """A Word document reads as its text; any other binary body is refused, never decoded as text."""
+
+    def test_docx_reads_as_text(self):
+        p = make_docx(self.d / "minutes.docx",
+                      '<w:p><w:r><w:t>Overhaul at</w:t></w:r><w:r><w:t xml:space="preserve"> 2000 hours</w:t></w:r></w:p>'
+                      '<w:p><w:pPr><w:tabs><w:tab w:val="left" w:pos="720"/></w:tabs></w:pPr>'
+                      '<w:r><w:t>A</w:t><w:tab/><w:t>B &amp; C</w:t><w:br/><w:t>next line</w:t></w:r>'
+                      '<w:r><w:instrText>PAGE</w:instrText></w:r><w:del><w:r><w:delText>struck</w:delText></w:r></w:del></w:p>')
+        pages, kind, empty = acquire(p)
+        text = "\n".join(pages)
+        self.assertEqual(kind, "docx")
+        self.assertEqual(empty, [])
+        self.assertIn("Overhaul at 2000 hours", text)
+        self.assertIn("A\tB & C\nnext line", text)
+        self.assertTrue("PAGE" not in text and "struck" not in text, text)
+        self.assertNotIn("PK", text, "zip bytes reached the pages")
+        data = p.read_bytes()
+        self.assertEqual(of_fetched(data, DOCX_TYPE).kind, "docx")
+        self.assertEqual(of_fetched(data, "application/octet-stream").kind, "docx", "an untyped docx is sniffed")
+
+    def test_binary_refused(self):
+        blob = self.d / "blob.bin"
+        blob.write_bytes(b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR")
+        for path, fragment in ((blob, "binary"),
+                               (self._plain_zip(), "not a Word document"),
+                               (self._broken(), "not a readable zip")):
+            with self.assertRaises(SystemExit) as cm:
+                acquire(path)
+            self.assertIn(fragment, str(cm.exception.code), path)
+        with self.assertRaises(SystemExit) as cm:
+            save_fetched("http://h/a.xlsx", b"PK\x03\x04\x00\x00xl/", "application/vnd.ms-excel", None, store_dir())
+        self.assertIn("binary body", str(cm.exception.code))
+
+    def test_docx_cap(self):
+        from grillelib import documents
+        p = make_docx(self.d / "big.docx", "<w:p><w:r><w:t>" + "x" * 5000 + "</w:t></w:r></w:p>")
+        with mock.patch.object(documents, "DOCX_CAP", 1000), self.assertRaises(SystemExit) as cm:
+            acquire(p)
+        self.assertIn("refused", str(cm.exception.code))
+
+    def test_docx_evasions(self):
+        """A rebound prefix, a UTF-16 part, a DTD, a run of unclosed tags, a damaged and an
+        encrypted zip: each reads the same or is refused by name, never silently empty."""
+        run = "<d:p><d:r><d:t>hidden in d</d:t><d:noBreakHyphen/><d:t>mail</d:t></d:r></d:p>"
+        self.assertIn("hidden in d-mail", "".join(acquire(make_docx(self.d / "d.docx", run, prefix="d"))[0]))
+        utf16 = f'<?xml version="1.0" encoding="UTF-16"?><w:document xmlns:w="{W_NS}"><w:body><w:p><w:r>' \
+                "<w:t>sixteen</w:t></w:r></w:p></w:body></w:document>"
+        self.assertIn("sixteen", "".join(acquire(make_docx(self.d / "u.docx", "", raw=utf16.encode("utf-16")))[0]))
+        dtd = f'<?xml version="1.0"?><!DOCTYPE w [<!ENTITY a "aaaa">]><w:document xmlns:w="{W_NS}"/>'
+        start = time.monotonic()
+        for p, fragment in ((make_docx(self.d / "dtd.docx", "", raw=dtd), "DTD"),
+                            (make_docx(self.d / "open.docx", "<w:t " * 200000), "not well-formed"),
+                            (self._damaged(), "not a readable zip"),
+                            (self._encrypted(), "not a readable zip")):
+            with self.assertRaises(SystemExit) as cm:
+                acquire(p)
+            self.assertIn(fragment, str(cm.exception.code), p)
+        self.assertLess(time.monotonic() - start, 10, "a run of unclosed tags must not take quadratic time")
+
+    def test_utf16_text(self):
+        """UTF-16 carries NULs as bytes and none as characters, so it is text, fetched or local."""
+        body = "Overhaul at 2000 hours".encode("utf-16")
+        path, kind = save_fetched("http://h/manual.txt", body, "text/plain", "utf-16", store_dir())
+        self.assertTrue(kind == "text" and "2000 hours" in path.read_text(), kind)
+        local = self.d / "manual16.txt"
+        local.write_bytes(body)
+        self.assertIn("2000 hours", acquire(local)[0][0])
+
+    def _damaged(self):
+        p = make_docx(self.d / "damaged.docx", "<w:p><w:r><w:t>" + "lorem ipsum " * 400 + "</w:t></w:r></w:p>")
+        data = bytearray(p.read_bytes())
+        for i in range(80, 200):
+            data[i] ^= 0x5A                     # inside the deflate stream of the first entry
+        p.write_bytes(bytes(data))
+        return p
+
+    def _encrypted(self):
+        p = make_docx(self.d / "locked.docx", "")
+        data = bytearray(p.read_bytes())
+        for at in (0, data.index(b"PK\x01\x02")):   # local and central headers: set the encrypted bit
+            data[at + (6 if at == 0 else 8)] |= 0x1
+        p.write_bytes(bytes(data))
+        return p
+
+    def _plain_zip(self):
+        p = self.d / "notword.docx"
+        with zipfile.ZipFile(p, "w") as z:
+            z.writestr("xl/workbook.xml", "<workbook/>")
+        return p
+
+    def _broken(self):
+        p = self.d / "broken.docx"
+        p.write_bytes(b"PK\x03\x04 not really a zip")
+        return p
 
 
 if __name__ == "__main__":
